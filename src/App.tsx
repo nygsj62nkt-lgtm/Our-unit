@@ -34,6 +34,13 @@ interface ScheduleEvent {
   comments:Comment[]; audit:Audit[];
 }
 interface Notification { id:string; text:string; at:string; read:boolean; target:Tab; entityId?:string; }
+type DutyType = 'תורנות' | 'שמירה' | 'סגירת שבת';
+interface Duty {
+  id:string; personId:string; personName:string; avatarUrl:string; type:DutyType;
+  startDate:string; endDate:string; startTime?:string; endTime?:string; note?:string;
+  createdBy:string; createdAt:string; updatedBy:string; updatedAt:string; active:boolean;
+}
+interface ManagementMessage { id:string; author:string; avatarUrl:string; text:string; at:string; }
 
 const CURRENT_USER = 'עדי';
 const nowText = () => new Date().toLocaleString('he-IL', {dateStyle:'short', timeStyle:'short'});
@@ -42,35 +49,102 @@ const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateStri
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
 const AVATARS = [
-  ...Array.from({length:16},(_,i)=>({id:`human-${String(i+1).padStart(2,'0')}`,label:'דמות',src:`/avatars/human-${String(i+1).padStart(2,'0')}.jpg`,group:'people'})),
+  {id:'person-01',label:'דמות 1',src:'/avatars/person-01.jpg',group:'people'},
+  {id:'person-02',label:'דמות 2',src:'/avatars/person-02.jpg',group:'people'},
+  {id:'person-03',label:'דמות 3',src:'/avatars/person-03.jpg',group:'people'},
+  {id:'person-04',label:'דמות 4',src:'/avatars/person-04.jpg',group:'people'},
+  {id:'person-05',label:'דמות 5',src:'/avatars/person-05.jpg',group:'people'},
+  {id:'person-06',label:'דמות 6',src:'/avatars/person-06.jpg',group:'people'},
+  {id:'person-07',label:'דמות 7',src:'/avatars/person-07.jpg',group:'people'},
+  {id:'person-08',label:'דמות 8',src:'/avatars/person-08.jpg',group:'people'},
+  {id:'person-09',label:'דמות 9',src:'/avatars/person-09.jpg',group:'people'},
+  {id:'person-10',label:'דמות 10',src:'/avatars/person-10.jpg',group:'people'},
+  {id:'person-11',label:'דמות 11',src:'/avatars/person-11.jpg',group:'people'},
+  {id:'person-12',label:'דמות 12',src:'/avatars/person-12.jpg',group:'people'},
+  {id:'person-13',label:'דמות 13',src:'/avatars/person-13.jpg',group:'people'},
+  {id:'person-14',label:'דמות 14',src:'/avatars/person-14.jpg',group:'people'},
+  {id:'person-15',label:'דמות 15',src:'/avatars/person-15.jpg',group:'people'},
+  {id:'person-16',label:'דמות 16',src:'/avatars/person-16.jpg',group:'people'},
+  {id:'person-17',label:'דמות 17',src:'/avatars/person-17.jpg',group:'people'},
+  {id:'person-18',label:'דמות 18',src:'/avatars/person-18.jpg',group:'people'},
+  {id:'person-19',label:'דמות 19',src:'/avatars/person-19.jpg',group:'people'},
+  {id:'person-20',label:'דמות 20',src:'/avatars/person-20.jpg',group:'people'},
+  {id:'person-21',label:'דמות 21',src:'/avatars/person-21.jpg',group:'people'},
+  {id:'person-22',label:'דמות 22',src:'/avatars/person-22.jpg',group:'people'},
+  {id:'person-23',label:'דמות 23',src:'/avatars/person-23.jpg',group:'people'},
+  {id:'person-24',label:'דמות 24',src:'/avatars/person-24.jpg',group:'people'},
+  {id:'person-25',label:'דמות 25',src:'/avatars/person-25.jpg',group:'people'},
+  {id:'person-26',label:'דמות 26',src:'/avatars/person-26.jpg',group:'people'},
+  {id:'person-27',label:'דמות 27',src:'/avatars/person-27.jpg',group:'people'},
+  {id:'person-28',label:'דמות 28',src:'/avatars/person-28.jpg',group:'people'},
+  {id:'person-29',label:'דמות 29',src:'/avatars/person-29.jpg',group:'people'},
+  {id:'person-30',label:'דמות 30',src:'/avatars/person-30.jpg',group:'people'},
+  {id:'person-31',label:'דמות 31',src:'/avatars/person-31.jpg',group:'people'},
+  {id:'person-32',label:'דמות 32',src:'/avatars/person-32.jpg',group:'people'},
+  {id:'person-33',label:'דמות 33',src:'/avatars/person-33.jpg',group:'people'},
+  {id:'person-34',label:'דמות 34',src:'/avatars/person-34.jpg',group:'people'},
+  {id:'person-35',label:'דמות 35',src:'/avatars/person-35.jpg',group:'people'},
+  {id:'person-36',label:'דמות 36',src:'/avatars/person-36.jpg',group:'people'},
+  {id:'person-37',label:'דמות 37',src:'/avatars/person-37.jpg',group:'people'},
+  {id:'person-38',label:'דמות 38',src:'/avatars/person-38.jpg',group:'people'},
+  {id:'person-39',label:'דמות 39',src:'/avatars/person-39.jpg',group:'people'},
+  {id:'person-40',label:'דמות 40',src:'/avatars/person-40.jpg',group:'people'},
+  {id:'person-41',label:'דמות 41',src:'/avatars/person-41.jpg',group:'people'},
+  {id:'person-42',label:'דמות 42',src:'/avatars/person-42.jpg',group:'people'},
+  {id:'person-43',label:'דמות 43',src:'/avatars/person-43.jpg',group:'people'},
+  {id:'person-44',label:'דמות 44',src:'/avatars/person-44.jpg',group:'people'},
+  {id:'person-45',label:'דמות 45',src:'/avatars/person-45.jpg',group:'people'},
+  {id:'person-46',label:'דמות 46',src:'/avatars/person-46.jpg',group:'people'},
+  {id:'person-47',label:'דמות 47',src:'/avatars/person-47.jpg',group:'people'},
+  {id:'person-48',label:'דמות 48',src:'/avatars/person-48.jpg',group:'people'},
+  {id:'cat-diva',label:'חתול־דיווה ✨',src:'/avatars/cat-diva.jpg',group:'animals'},
   {id:'cat-siamese',label:'חתול סיאמי',src:'/avatars/cat-siamese.jpg',group:'animals'},
-  {id:'cat-black',label:'חתול שחור',src:'/avatars/cat-black.jpg',group:'animals'},
+  {id:'cat-tuxedo',label:'חתול טוקסידו',src:'/avatars/cat-tuxedo.jpg',group:'animals'},
+  {id:'cat-calico',label:'חתול קליקו',src:'/avatars/cat-calico.jpg',group:'animals'},
+  {id:'cat-grumpy',label:'חתול זועף',src:'/avatars/cat-grumpy.jpg',group:'animals'},
+  {id:'cat-bow',label:'חתולה עם פפיון',src:'/avatars/cat-bow.jpg',group:'animals'},
   {id:'cat-orange',label:'חתול כתום',src:'/avatars/cat-orange.jpg',group:'animals'},
   {id:'cat-gray',label:'חתול אפור',src:'/avatars/cat-gray.jpg',group:'animals'},
-  {id:'cat-tuxedo',label:'חתול טוקסידו',src:'/avatars/cat-tuxedo.jpg',group:'animals'},
-  {id:'cat-bow',label:'חתולה עם פפיון',src:'/avatars/cat-bow.jpg',group:'animals'},
-  {id:'cat-grumpy',label:'חתול זועף',src:'/avatars/cat-grumpy.jpg',group:'animals'},
-  {id:'cat-calico',label:'חתול קליקו',src:'/avatars/cat-calico.jpg',group:'animals'},
-  {id:'cat-diva',label:'חתול־דיווה ✨',src:'/avatars/cat-diva.jpg',group:'animals'},
   {id:'cat-sleepy',label:'חתול ישנוני',src:'/avatars/cat-sleepy.jpg',group:'animals'},
+  {id:'cat-black',label:'חתול שחור',src:'/avatars/cat-black.jpg',group:'animals'},
   {id:'dog-golden',label:'גולדן',src:'/avatars/dog-golden.jpg',group:'animals'},
-  {id:'dog-husky',label:'האסקי',src:'/avatars/dog-husky.jpg',group:'animals'},
   {id:'dog-corgi',label:'קורגי',src:'/avatars/dog-corgi.jpg',group:'animals'},
-  {id:'bunny',label:'ארנב',src:'/avatars/bunny.jpg',group:'animals'},
+  {id:'dog-husky',label:'האסקי',src:'/avatars/dog-husky.jpg',group:'animals'},
+  {id:'dog-white',label:'כלבלב לבן',src:'/avatars/dog-white.jpg',group:'animals'},
+  {id:'dog-poodle',label:'פודל',src:'/avatars/dog-poodle.jpg',group:'animals'},
+  {id:'dog-dachshund',label:'תחש',src:'/avatars/dog-dachshund.jpg',group:'animals'},
+  {id:'dog-jack',label:'ג׳ק ראסל',src:'/avatars/dog-jack.jpg',group:'animals'},
+  {id:'cat-sleepy-2',label:'cat-sleepy-2',src:'/avatars/cat-sleepy-2.jpg',group:'animals'},
+  {id:'dog-frenchie',label:'בולדוג צרפתי',src:'/avatars/dog-frenchie.jpg',group:'animals'},
+  {id:'dog-rottweiler',label:'רוטוויילר',src:'/avatars/dog-rottweiler.jpg',group:'animals'},
+  {id:'bunny-brown',label:'ארנב',src:'/avatars/bunny-brown.jpg',group:'animals'},
+  {id:'bunny-white',label:'ארנב לבן',src:'/avatars/bunny-white.jpg',group:'animals'},
+  {id:'bunny-gray',label:'ארנב אפור',src:'/avatars/bunny-gray.jpg',group:'animals'},
   {id:'hamster',label:'אוגר',src:'/avatars/hamster.jpg',group:'animals'},
-  {id:'ferret',label:'חמוס',src:'/avatars/ferret.jpg',group:'animals'},
   {id:'hedgehog',label:'קיפוד',src:'/avatars/hedgehog.jpg',group:'animals'},
-  {id:'frog',label:'צפרדע',src:'/avatars/frog.jpg',group:'creatures'},
-  {id:'dino',label:'דינוזאור',src:'/avatars/dino.jpg',group:'creatures'},
-  {id:'axolotl',label:'אקסולוטל',src:'/avatars/axolotl.jpg',group:'creatures'},
-  {id:'ghost',label:'רוח',src:'/avatars/ghost.jpg',group:'creatures'},
-  {id:'penguin',label:'פינגווין',src:'/avatars/penguin.jpg',group:'animals'},
   {id:'raccoon',label:'דביבון',src:'/avatars/raccoon.jpg',group:'animals'},
+  {id:'otter',label:'לוטרה',src:'/avatars/otter.jpg',group:'animals'},
   {id:'red-panda',label:'פנדה אדומה',src:'/avatars/red-panda.jpg',group:'animals'},
-  {id:'cow',label:'פרה',src:'/avatars/cow.jpg',group:'animals'},
   {id:'sloth',label:'עצלן',src:'/avatars/sloth.jpg',group:'animals'},
-  {id:'duck',label:'ברווז',src:'/avatars/duck.jpg',group:'animals'},
-  {id:'narwhal',label:'נרוואל',src:'/avatars/narwhal.jpg',group:'creatures'},
+  {id:'guinea-pig',label:'שרקן',src:'/avatars/guinea-pig.jpg',group:'animals'},
+  {id:'capybara',label:'קפיברה',src:'/avatars/capybara.jpg',group:'animals'},
+  {id:'highland-cow',label:'פרה סקוטית',src:'/avatars/highland-cow.jpg',group:'animals'},
+  {id:'dino',label:'דינוזאור',src:'/avatars/dino.jpg',group:'creatures'},
+  {id:'frog',label:'צפרדע מלכותית',src:'/avatars/frog.jpg',group:'creatures'},
+  {id:'axolotl',label:'אקסולוטל',src:'/avatars/axolotl.jpg',group:'creatures'},
+  {id:'penguin',label:'פינגווין',src:'/avatars/penguin.jpg',group:'animals'},
+  {id:'seal',label:'כלב ים',src:'/avatars/seal.jpg',group:'animals'},
+  {id:'octopus',label:'תמנון',src:'/avatars/octopus.jpg',group:'creatures'},
+  {id:'turtle',label:'צב',src:'/avatars/turtle.jpg',group:'animals'},
+  {id:'cockatiel',label:'קוקטייל',src:'/avatars/cockatiel.jpg',group:'animals'},
+  {id:'budgie',label:'תוכון',src:'/avatars/budgie.jpg',group:'animals'},
+  {id:'owl',label:'ינשוף',src:'/avatars/owl.jpg',group:'animals'},
+  {id:'crow',label:'עורב',src:'/avatars/crow.jpg',group:'animals'},
+  {id:'dragon',label:'דרקון',src:'/avatars/dragon.jpg',group:'creatures'},
+  {id:'unicorn-1',label:'חד־קרן',src:'/avatars/unicorn-1.jpg',group:'creatures'},
+  {id:'unicorn-2',label:'חד־קרן',src:'/avatars/unicorn-2.jpg',group:'creatures'},
+  {id:'creature-1',label:'יצור חמוד',src:'/avatars/creature-1.jpg',group:'creatures'},
+  {id:'creature-2',label:'יצור חמוד',src:'/avatars/creature-2.jpg',group:'creatures'},
 ];
 
 
@@ -107,6 +181,18 @@ export default function App() {
   const [leaves,setLeaves] = useState<Leave[]>([]);
   const [events,setEvents] = useState<ScheduleEvent[]>([]);
   const [notifications,setNotifications] = useState<Notification[]>([]);
+  const [duties,setDuties] = useState<Duty[]>([]);
+  const [managementMessages,setManagementMessages] = useState<ManagementMessage[]>([]);
+  const [managementChatOpen,setManagementChatOpen] = useState(false);
+  const [managementText,setManagementText] = useState('');
+  const [dutyFormOpen,setDutyFormOpen] = useState(false);
+  const [dutyPersonId,setDutyPersonId] = useState('');
+  const [dutyType,setDutyType] = useState<DutyType>('תורנות');
+  const [dutyStartDate,setDutyStartDate] = useState(todayISO());
+  const [dutyEndDate,setDutyEndDate] = useState(todayISO());
+  const [dutyStartTime,setDutyStartTime] = useState('');
+  const [dutyEndTime,setDutyEndTime] = useState('');
+  const [dutyNote,setDutyNote] = useState('');
 
   const notify = (text:string,target:Tab,entityId?:string) => setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
   const currentLeaves = useMemo(() => leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO()),[leaves]);
@@ -145,11 +231,29 @@ export default function App() {
     closeDetails();
   };
 
+  const addDuty=()=>{
+    const person=people.find(p=>p.id===dutyPersonId) || selectedPerson;
+    if(!person) return alert('צריך לבחור אדם');
+    const at=nowText();
+    const d:Duty={id:uid(),personId:person.id,personName:person.name,avatarUrl:person.avatarUrl,type:dutyType,startDate:dutyStartDate,endDate:dutyEndDate,startTime:dutyStartTime,endTime:dutyEndTime,note:dutyNote,createdBy:CURRENT_USER,createdAt:at,updatedBy:CURRENT_USER,updatedAt:at,active:true};
+    setDuties(xs=>[d,...xs]); notify(`${CURRENT_USER} הוסיפה ${dutyType} ל${person.name}`,'people',person.id);
+    setDutyFormOpen(false); setDutyPersonId(''); setDutyType('תורנות'); setDutyStartDate(todayISO()); setDutyEndDate(todayISO()); setDutyStartTime(''); setDutyEndTime(''); setDutyNote('');
+  };
+  const sendManagementMessage=()=>{
+    const text=managementText.trim(); if(!text)return;
+    const me=people.find(p=>p.name===CURRENT_USER);
+    setManagementMessages(xs=>[...xs,{id:uid(),author:CURRENT_USER,avatarUrl:me?.avatarUrl||'/avatars/cat-diva.jpg',text,at:nowText()}]);
+    setManagementText('');
+  };
+
   return <div className="flex justify-center bg-[#E9E7E3] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
     <div className="w-full max-w-[440px] bg-[#F8F6F2] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40">
       <div className="flex-1 overflow-y-auto px-4 pt-5 pb-6">
         {activeTab==='today' && <div className="space-y-4">
           <Header title="היום ביחידה" subtitle={new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} onBell={()=>setNotificationsOpen(true)} unread={unread}/>
+          <button onClick={()=>setManagementChatOpen(true)} className="w-full bg-gradient-to-l from-[#EEE1FF] to-[#F7EFFF] text-[#7047D7] rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3"><span className="w-10 h-10 rounded-full bg-white/70 flex items-center justify-center"><MessageCircle className="w-5 h-5"/></span><div className="text-right"><div className="font-black text-sm">צ׳אט מפקדים</div><div className="text-[10px] opacity-70">{managementMessages.length?`${managementMessages.length} הודעות`:'להתייעצויות ועדכונים בינינו'}</div></div></div><ChevronLeft className="w-4 h-4"/>
+          </button>
           <div onClick={openBanner} className="relative h-32 rounded-3xl overflow-hidden shadow-sm flex items-center justify-center cursor-pointer active:scale-[.99] transition-transform">
             <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=900&fit=crop" className="absolute inset-0 w-full h-full object-cover brightness-[0.92] saturate-[1.15]"/>
             <div className="relative text-center px-4"><h2 className="text-white text-2xl font-black">{bannerMessage}</h2><span className="text-[11px] text-white/80">לחץ לעריכת ההודעה ✎</span></div>
@@ -287,8 +391,36 @@ export default function App() {
         <div className="text-center py-4"><img src={selectedPerson.avatarUrl} className="w-24 h-24 rounded-full object-cover mx-auto"/><h2 className="text-xl font-black mt-2">{selectedPerson.name}</h2><p className="text-sm text-slate-500">{selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}</p></div>
         <Info label="סוג" value={selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}/>
         <div className="grid grid-cols-2 gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="bg-[#7047D7] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="bg-white border p-3 rounded-2xl font-bold">הוספת חופש</button><button onClick={()=>{if(confirm(`למחוק את ${selectedPerson.name} מכוח האדם? המשימות והחופשות הקיימות יישמרו.`)){setPeople(xs=>xs.map(x=>x.id===selectedPerson.id?{...x,active:false}:x));notify(`${CURRENT_USER} הסירה את ${selectedPerson.name} מכוח האדם`,'people',selectedPerson.id);setSelectedPerson(null)}}} className="col-span-2 bg-[#FFE8E8] text-[#C84242] p-3 rounded-2xl font-bold">מחיקה מכוח האדם</button></div>
-        <Section title="משימות"><div className="space-y-2">{tasks.filter(t=>t.responsibleId===selectedPerson.id).map(t=><button key={t.id} onClick={()=>{setSelectedPerson(null);setSelectedTask(t)}} className="w-full bg-slate-50 p-3 rounded-xl text-right text-sm font-bold">{t.title}</button>)}{!tasks.some(t=>t.responsibleId===selectedPerson.id)&&<Empty text="אין משימות"/>}</div></Section>
+        <Section title="תורנויות ושמירות">
+          <div className="space-y-2">
+            <button onClick={()=>{setDutyPersonId(selectedPerson.id);setDutyFormOpen(true)}} className="w-full bg-gradient-to-l from-[#FFF0D8] to-[#FFF8EB] text-[#A96C15] p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Plus className="w-4 h-4"/>הוספת תורנות / שמירה / שבת</button>
+            {duties.filter(d=>d.personId===selectedPerson.id&&d.active).map(d=><div key={d.id} className="bg-slate-50 p-3 rounded-2xl flex items-center justify-between"><div><div className="font-extrabold text-sm">{d.type}</div><div className="text-[10px] text-slate-400">{fmtDate(d.startDate)}{d.endDate!==d.startDate?` – ${fmtDate(d.endDate)}`:''}{d.startTime?` • ${d.startTime}${d.endTime?`–${d.endTime}`:''}`:''}</div>{d.note&&<div className="text-xs mt-1">{d.note}</div>}<div className="text-[9px] text-slate-400 mt-1">הוזן ע״י {d.createdBy}</div></div><button onClick={()=>{if(confirm('למחוק את הרשומה?'))setDuties(xs=>xs.map(x=>x.id===d.id?{...x,active:false}:x))}} className="w-8 h-8 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center"><Trash2 className="w-3.5 h-3.5"/></button></div>)}
+            {!duties.some(d=>d.personId===selectedPerson.id&&d.active)&&<Empty text="אין תורנויות או שמירות"/>}
+          </div>
+        </Section><div className="h-3"/><Section title="משימות"><div className="space-y-2">{tasks.filter(t=>t.responsibleId===selectedPerson.id).map(t=><button key={t.id} onClick={()=>{setSelectedPerson(null);setSelectedTask(t)}} className="w-full bg-slate-50 p-3 rounded-xl text-right text-sm font-bold">{t.title}</button>)}{!tasks.some(t=>t.responsibleId===selectedPerson.id)&&<Empty text="אין משימות"/>}</div></Section>
         <div className="h-3"/><Section title="חופשות"><div className="space-y-2">{leaves.filter(l=>l.personId===selectedPerson.id).map(l=><div key={l.id} className="bg-slate-50 p-3 rounded-xl text-sm">{l.type} • {fmtDate(l.startDate)}–{fmtDate(l.endDate)}</div>)}{!leaves.some(l=>l.personId===selectedPerson.id)&&<Empty text="אין חופשות"/>}</div></Section>
+      </div>}
+
+      {dutyFormOpen&&<Modal title="הוספת תורנות / שמירה" onClose={()=>setDutyFormOpen(false)}>
+        <div className="space-y-3">
+          <select value={dutyPersonId||selectedPerson?.id||''} onChange={e=>setDutyPersonId(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm">
+            <option value="">בחירת אדם</option>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <div className="grid grid-cols-3 gap-2">{(['תורנות','שמירה','סגירת שבת'] as DutyType[]).map(t=><button key={t} onClick={()=>setDutyType(t)} className={`py-2.5 rounded-xl text-xs font-bold ${dutyType===t?'bg-[#7047D7] text-white':'bg-slate-50 text-slate-500'}`}>{t}</button>)}</div>
+          <div className="grid grid-cols-2 gap-2"><div><div className="text-[10px] text-slate-400 mb-1">מתאריך</div><input type="date" value={dutyStartDate} onChange={e=>setDutyStartDate(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/></div><div><div className="text-[10px] text-slate-400 mb-1">עד תאריך</div><input type="date" value={dutyEndDate} onChange={e=>setDutyEndDate(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/></div></div>
+          {dutyType!=='סגירת שבת'&&<div className="grid grid-cols-2 gap-2"><input type="time" value={dutyStartTime} onChange={e=>setDutyStartTime(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/><input type="time" value={dutyEndTime} onChange={e=>setDutyEndTime(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/></div>}
+          <textarea value={dutyNote} onChange={e=>setDutyNote(e.target.value)} placeholder="הערה (אופציונלי)" className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/>
+          <button onClick={addDuty} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-bold">שמירה</button>
+        </div>
+      </Modal>}
+
+      {managementChatOpen&&<div className="fixed inset-0 z-50 bg-[#F8F6F2] max-w-[440px] mx-auto flex flex-col" dir="rtl">
+        <div className="p-4"><Top title="צ׳אט מפקדים" onClose={()=>setManagementChatOpen(false)}/></div>
+        <div className="px-4 pb-2"><div className="bg-[#EEE1FF] text-[#7047D7] rounded-2xl p-3 text-xs font-bold">💬 מקום להתייעצויות ועדכונים שלא קשורים לפריט מסוים</div></div>
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3">
+          {managementMessages.length?managementMessages.map(m=><div key={m.id} className={`flex gap-2 ${m.author===CURRENT_USER?'flex-row':'flex-row-reverse'}`}><img src={m.avatarUrl} className="w-8 h-8 rounded-full object-cover"/><div className={`max-w-[78%] p-3 rounded-2xl ${m.author===CURRENT_USER?'bg-[#7047D7] text-white':'bg-white border'}`}><div className="text-[10px] font-black opacity-75">{m.author}</div><div className="text-sm mt-0.5">{m.text}</div><div className="text-[8px] opacity-60 mt-1">{m.at}</div></div></div>):<Empty text="עוד אין הודעות. מישהי צריכה להתחיל 😌"/>}
+        </div>
+        <div className="p-4 bg-white border-t flex gap-2"><input value={managementText} onChange={e=>setManagementText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')sendManagementMessage()}} placeholder="כתיבת הודעה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={sendManagementMessage} className="w-12 rounded-2xl bg-[#7047D7] text-white flex items-center justify-center"><MessageCircle className="w-5 h-5"/></button></div>
       </div>}
 
       {notificationsOpen&&<div className="fixed inset-0 z-50 bg-[#F8F6F2] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
