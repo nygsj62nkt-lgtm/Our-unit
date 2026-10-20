@@ -7,13 +7,13 @@ import {
 } from 'lucide-react';
 
 type Tab = 'today' | 'tasks' | 'leaves' | 'schedule' | 'people';
-type Category = 'soldier' | 'commander';
+type Category = 'soldier' | 'commander' | 'reserve';
 type TaskStatus = 'open' | 'in_progress' | 'completed' | 'overdue';
 
 interface Comment { id:string; author:string; text:string; at:string; }
 interface Audit { id:string; actor:string; text:string; at:string; }
 interface Person {
-  id:string; name:string; rank:string; role:string; category:Category; phone:string;
+  id:string; name:string; category:Category;
   notes:string; avatarUrl:string; active:boolean;
 }
 interface Task {
@@ -23,7 +23,7 @@ interface Task {
   comments:Comment[]; audit:Audit[];
 }
 interface Leave {
-  id:string; personId:string; name:string; type:'חופש'|'גימלים'|'קורס'|'אפטר';
+  id:string; personId:string; name:string; type:'חופש'|'גימלים'|'קורס'|'אפטר'|'תמ״ל';
   startDate:string; endDate:string; avatarUrl:string; category:Category; note?:string;
   createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
@@ -41,13 +41,7 @@ const todayISO = () => new Date().toISOString().slice(0,10);
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
-const initialPeople:Person[] = [
-  {id:'p1',name:'דניאל',rank:'טוראי',role:'לוחמת',category:'soldier',phone:'050-0000001',notes:'',avatarUrl:'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p2',name:'כהן',rank:'רב״ט',role:'מש״ק',category:'soldier',phone:'050-0000002',notes:'',avatarUrl:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p3',name:'לוי',rank:'סמל',role:'אחראי ציוד',category:'soldier',phone:'050-0000003',notes:'',avatarUrl:'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p4',name:'מאיה',rank:'סג״ם',role:'מפקדת צוות',category:'commander',phone:'050-0000004',notes:'',avatarUrl:'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p5',name:'שיר',rank:'סגן',role:'מפקדת מחלקה',category:'commander',phone:'050-0000005',notes:'',avatarUrl:'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=120&h=120&fit=crop&crop=face',active:true},
-];
+const initialPeople:Person[] = [];
 
 const seedAudit = (text:string):Audit[] => [{id:uid(),actor:'עדי',text,at:nowText()}];
 
@@ -76,27 +70,10 @@ export default function App() {
   const [isEditingBanner,setIsEditingBanner] = useState(false);
   const [tempBannerInput,setTempBannerInput] = useState('');
 
-  const [tasks,setTasks] = useState<Task[]>([
-    {id:'1',title:'להכין ציוד לאימון',dueDate:todayISO(),responsibleId:'p1',responsibleName:'דניאל',avatarUrl:initialPeople[0].avatarUrl,status:'overdue',description:'להכין את כל הציוד לקראת אימון פלוגתי',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')},
-    {id:'2',title:'להעביר רשימת חיילים',dueDate:todayISO(),responsibleId:'p5',responsibleName:'שיר',avatarUrl:initialPeople[4].avatarUrl,status:'in_progress',description:'סגירת רשימה שמית סופית',createdBy:'מאיה',createdAt:nowText(),updatedBy:'מאיה',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')},
-    {id:'3',title:'לתאם הסעות שבועיות',dueDate:todayISO(),responsibleId:'p3',responsibleName:'לוי',avatarUrl:initialPeople[2].avatarUrl,status:'completed',description:'תיאום הסעה שבועית',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')},
-    {id:'4',title:'עדכון נוהל שבת',dueDate:todayISO(),responsibleId:'p4',responsibleName:'מאיה',avatarUrl:initialPeople[3].avatarUrl,status:'open',description:'רענון פקודות ותדריך',createdBy:'שיר',createdAt:nowText(),updatedBy:'שיר',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')}
-  ]);
-  const [leaves,setLeaves] = useState<Leave[]>([
-    {id:'l1',personId:'p3',name:'לוי',type:'חופש',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[2].avatarUrl,category:'soldier',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה חופש')},
-    {id:'l2',personId:'p2',name:'כהן',type:'חופש',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[1].avatarUrl,category:'soldier',createdBy:'מאיה',createdAt:nowText(),updatedBy:'מאיה',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה חופש')},
-    {id:'l3',personId:'p1',name:'דניאל',type:'גימלים',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[0].avatarUrl,category:'soldier',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה גימלים')},
-    {id:'l4',personId:'p4',name:'מאיה',type:'קורס',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[3].avatarUrl,category:'commander',createdBy:'שיר',createdAt:nowText(),updatedBy:'שיר',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה קורס')}
-  ]);
-  const [events,setEvents] = useState<ScheduleEvent[]>([
-    {id:'e1',title:'מסדר ותדריך בוקר',date:todayISO(),time:'08:00',endTime:'09:00',description:'',personIds:[],createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה אירוע')},
-    {id:'e2',title:'אימון פלוגתי מרוכז',date:todayISO(),time:'10:00',endTime:'12:00',description:'',personIds:[],createdBy:'מאיה',createdAt:nowText(),updatedBy:'מאיה',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה אירוע')},
-    {id:'e3',title:'ישיבת מפקדי צוותים',date:todayISO(),time:'13:00',endTime:'14:00',description:'',personIds:['p4','p5'],createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה אירוע')}
-  ]);
-  const [notifications,setNotifications] = useState<Notification[]>([
-    {id:'n1',text:'מאיה עדכנה את המשימה "להעביר רשימת חיילים"',at:nowText(),read:false,target:'tasks',entityId:'2'},
-    {id:'n2',text:'נוסף חופש חדש ללוי',at:nowText(),read:false,target:'leaves',entityId:'l1'}
-  ]);
+  const [tasks,setTasks] = useState<Task[]>([]);
+  const [leaves,setLeaves] = useState<Leave[]>([]);
+  const [events,setEvents] = useState<ScheduleEvent[]>([]);
+  const [notifications,setNotifications] = useState<Notification[]>([]);
 
   const notify = (text:string,target:Tab,entityId?:string) => setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
   const currentLeaves = useMemo(() => leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO()),[leaves]);
@@ -135,13 +112,15 @@ export default function App() {
     closeDetails();
   };
 
-  return <div className="flex justify-center bg-[#18181B] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
-    <div className="w-full max-w-[440px] bg-[#FAF9F6] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40">
+  return <div className="flex justify-center bg-[#EEE9F2] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
+    <div className="w-full max-w-[440px] bg-[#FFFDF9] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40">
+      <div className="pointer-events-none absolute -top-20 -right-20 w-56 h-56 rounded-full bg-[#EEDFF0]/60 blur-3xl"/>
+      <div className="pointer-events-none absolute top-72 -left-24 w-52 h-52 rounded-full bg-[#E3F2E8]/70 blur-3xl"/>
       <div className="flex-1 overflow-y-auto px-4 pt-5 pb-6">
         {activeTab==='today' && <div className="space-y-4">
           <Header title="היום ביחידה" subtitle={new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} onBell={()=>setNotificationsOpen(true)} unread={unread}/>
           <div onClick={openBanner} className="relative h-32 rounded-3xl overflow-hidden shadow-sm flex items-center justify-center cursor-pointer active:scale-[.99] transition-transform">
-            <img src="https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=800&fit=crop" className="absolute inset-0 w-full h-full object-cover brightness-75"/>
+            <img src="https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=800&fit=crop" className="absolute inset-0 w-full h-full object-cover brightness-[0.88] saturate-[1.08]"/>
             <div className="relative text-center px-4"><h2 className="text-white text-2xl font-black">{bannerMessage}</h2><span className="text-[11px] text-white/80">לחץ לעריכת ההודעה ✎</span></div>
             <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-md p-1.5 rounded-full text-white"><Pencil className="w-3 h-3"/></div>
           </div>
@@ -152,7 +131,7 @@ export default function App() {
             <Stat title="משימות באיחור" value={overdueTasks.length} icon={<AlertCircle className="w-4 h-4"/>} danger onClick={()=>goTasks('overdue')}/>
           </div>
           <Section title="היום בלו״ז" action="לכל השבוע" onAction={()=>setActiveTab('schedule')}>
-            <div className="space-y-3">{todayEvents.length?todayEvents.map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className="w-full flex items-center gap-3 text-right"><span className="text-xs font-bold text-slate-400 w-11">{e.time}</span><span className="w-2 h-2 rounded-full bg-[#5B4B67]"/><span className="text-xs font-bold">{e.title}</span></button>):<Empty text="אין אירועים היום"/>}</div>
+            <div className="space-y-3">{todayEvents.length?todayEvents.map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className="w-full flex items-center gap-3 text-right"><span className="text-xs font-bold text-slate-400 w-11">{e.time}</span><span className="w-2 h-2 rounded-full bg-[#725A7A]"/><span className="text-xs font-bold">{e.title}</span></button>):<Empty text="אין אירועים היום"/>}</div>
           </Section>
           <Section title="בחופשה היום 🌴" action="לכל החופשות" onAction={()=>setActiveTab('leaves')}>
             <div className="flex gap-3 overflow-x-auto">{currentLeaves.length?currentLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="min-w-[92px] bg-slate-50 p-2.5 rounded-2xl"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover mx-auto"/><div className="text-xs font-bold mt-1">{l.name}</div><div className="text-[10px] text-slate-400">{l.type}</div></button>):<Empty text="אף אחד לא בחופש היום"/>}</div>
@@ -162,7 +141,7 @@ export default function App() {
         {activeTab==='tasks' && <div className="space-y-4">
           <PageTitle title="משימות" subtitle="מעקב וניהול משימות היחידה" action={()=>openForm('task')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-            {([['all','הכל'],['open','פתוחות'],['overdue','באיחור'],['done','הושלמו']] as const).map(([k,l])=><button key={k} onClick={()=>setTaskFilter(k)} className={`flex-1 py-2 rounded-xl ${taskFilter===k?'bg-[#5B4B67] text-white':'text-slate-500'}`}>{l}</button>)}
+            {([['all','הכל'],['open','פתוחות'],['overdue','באיחור'],['done','הושלמו']] as const).map(([k,l])=><button key={k} onClick={()=>setTaskFilter(k)} className={`flex-1 py-2 rounded-xl ${taskFilter===k?'bg-[#725A7A] text-white':'text-slate-500'}`}>{l}</button>)}
           </div>
           <div className="space-y-2.5">{filteredTasks.length?filteredTasks.map(t=><button key={t.id} onClick={()=>setSelectedTask(t)} className="w-full bg-white p-3.5 rounded-3xl border border-slate-100 flex items-center justify-between text-right">
             <div><div className="font-extrabold text-sm">{t.title}</div><div className="text-[11px] text-slate-400 mt-1">{fmtDate(t.dueDate)} • אחראי: {t.responsibleName}</div><div className="text-[10px] text-slate-400 mt-1">עודכן ע״י {t.updatedBy}</div></div><ChevronLeft className="w-4 h-4 text-slate-300"/>
@@ -172,8 +151,9 @@ export default function App() {
         {activeTab==='leaves' && <div className="space-y-4">
           <PageTitle title="ניהול חופשות" subtitle="חיילים ומפקדים מחוץ לבסיס" action={()=>openForm('leave')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-            <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>חיילים</button>
-            <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>מפקדים</button>
+            <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#725A7A] text-white':'text-slate-500'}`}>חיילים</button>
+            <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#725A7A] text-white':'text-slate-500'}`}>מפקדים</button>
+            <button onClick={()=>setLeaveTab('reserve')} className={`flex-1 py-2 rounded-xl ${leaveTab==='reserve'?'bg-[#725A7A] text-white':'text-slate-500'}`}>מילואים</button>
           </div>
 
           <LeaveCalendar
@@ -190,7 +170,7 @@ export default function App() {
             }}
           />
 
-          <Section title={`${fmtDate(leaveSelectedDay)} • ${leaveTab==='soldier'?'חיילים':'מפקדים'} בחופש`}>
+          <Section title={`${fmtDate(leaveSelectedDay)} • ${leaveTab==='soldier'?'חיילים':leaveTab==='reserve'?'מילואים':'מפקדים'} בחופש`}>
             <div className="space-y-2.5">
               {selectedDayLeaves.length ? selectedDayLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
                 <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div><div className="text-[10px] text-slate-400">נוסף ע״י {l.createdBy}</div></div></div><span className="text-[11px] font-extrabold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl">{l.type}</span>
@@ -218,11 +198,11 @@ export default function App() {
 
         {activeTab==='people' && <div className="space-y-4">
           <PageTitle title="כוח אדם" subtitle="חיילים ומפקדים" action={()=>openForm('person')}/>
-          {(['commander','soldier'] as Category[]).map(cat=><Section key={cat} title={cat==='commander'?'מפקדים':'חיילים'}>
+          {(['commander','soldier','reserve'] as Category[]).map(cat=><Section key={cat} title={cat==='commander'?'מפקדים':cat==='reserve'?'מילואים':'חיילים'}>
             <div className="space-y-2">{people.filter(p=>p.category===cat&&p.active).map(p=>{
               const out=currentLeaves.some(l=>l.personId===p.id);
               return <button key={p.id} onClick={()=>setSelectedPerson(p)} className="w-full flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-right">
-                <div className="flex items-center gap-3"><img src={p.avatarUrl} className="w-11 h-11 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{p.rank} {p.name}</div><div className="text-[11px] text-slate-400">{p.role}</div></div></div><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${out?'bg-amber-50 text-amber-700':'bg-emerald-50 text-emerald-700'}`}>{out?'בחופש':'ביחידה'}</span>
+                <div className="flex items-center gap-3"><img src={p.avatarUrl} className="w-11 h-11 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{p.name}</div><div className="text-[11px] text-slate-400">{p.category==='commander'?'מפקד/ת':p.category==='reserve'?'מילואים':'חייל/ת'}</div></div></div><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${out?'bg-amber-50 text-amber-700':'bg-emerald-50 text-emerald-700'}`}>{out?'בחופש':'ביחידה'}</span>
               </button>
             })}</div>
           </Section>)}
@@ -233,7 +213,7 @@ export default function App() {
         <div className="w-full max-w-[410px] bg-white/95 backdrop-blur-xl border border-slate-200/60 rounded-3xl px-3 py-2 flex items-center justify-between shadow-xl pointer-events-auto">
           <Nav active={activeTab==='today'} icon={<Home/>} label="היום" onClick={()=>setActiveTab('today')}/>
           <Nav active={activeTab==='tasks'} icon={<CheckSquare/>} label="משימות" onClick={()=>setActiveTab('tasks')}/>
-          <button onClick={()=>setQuickAdd(true)} className="w-12 h-12 rounded-2xl bg-[#5B4B67] text-white flex items-center justify-center -mt-5"><Plus className="w-6 h-6"/></button>
+          <button onClick={()=>setQuickAdd(true)} className="w-12 h-12 rounded-2xl bg-[#725A7A] text-white flex items-center justify-center -mt-5"><Plus className="w-6 h-6"/></button>
           <Nav active={activeTab==='leaves'} icon={<Palmtree/>} label="חופשות" onClick={()=>setActiveTab('leaves')}/>
           <Nav active={activeTab==='schedule'} icon={<CalendarDays/>} label="לו״ז" onClick={()=>setActiveTab('schedule')}/>
           <Nav active={activeTab==='people'} icon={<Users/>} label="אנשים" onClick={()=>setActiveTab('people')}/>
@@ -271,24 +251,24 @@ export default function App() {
         <h2 className="text-xl font-black">{selectedEvent.title}</h2><Info label="תאריך" value={fmtDate(selectedEvent.date)}/><Info label="שעה" value={`${selectedEvent.time} – ${selectedEvent.endTime}`}/><p className="text-sm">{selectedEvent.description}</p>
       </Detail>}
 
-      {selectedPerson&&<div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
+      {selectedPerson&&<div className="fixed inset-0 z-50 bg-[#FFFDF9] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
         <Top title="פרופיל אישי" onClose={()=>setSelectedPerson(null)}/>
-        <div className="text-center py-4"><img src={selectedPerson.avatarUrl} className="w-24 h-24 rounded-full object-cover mx-auto"/><h2 className="text-xl font-black mt-2">{selectedPerson.rank} {selectedPerson.name}</h2><p className="text-sm text-slate-500">{selectedPerson.role}</p></div>
-        <div className="grid grid-cols-2 gap-2"><Info label="סוג" value={selectedPerson.category==='commander'?'מפקד/ת':'חייל/ת'}/><Info label="טלפון" value={selectedPerson.phone||'לא הוזן'}/></div>
-        <div className="flex gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="flex-1 bg-[#5B4B67] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="flex-1 bg-white border p-3 rounded-2xl font-bold">הוספת חופש</button></div>
+        <div className="text-center py-4"><img src={selectedPerson.avatarUrl} className="w-24 h-24 rounded-full object-cover mx-auto"/><h2 className="text-xl font-black mt-2">{selectedPerson.name}</h2><p className="text-sm text-slate-500">{selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}</p></div>
+        <Info label="סוג" value={selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}/>
+        <div className="grid grid-cols-2 gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="bg-[#725A7A] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="bg-white border p-3 rounded-2xl font-bold">הוספת חופש</button><button onClick={()=>{if(confirm(`למחוק את ${selectedPerson.name} מכוח האדם? המשימות והחופשות הקיימות יישמרו.`)){setPeople(xs=>xs.map(x=>x.id===selectedPerson.id?{...x,active:false}:x));notify(`${CURRENT_USER} הסירה את ${selectedPerson.name} מכוח האדם`,'people',selectedPerson.id);setSelectedPerson(null)}}} className="col-span-2 bg-rose-50 text-rose-600 p-3 rounded-2xl font-bold">מחיקה מכוח האדם</button></div>
         <Section title="משימות"><div className="space-y-2">{tasks.filter(t=>t.responsibleId===selectedPerson.id).map(t=><button key={t.id} onClick={()=>{setSelectedPerson(null);setSelectedTask(t)}} className="w-full bg-slate-50 p-3 rounded-xl text-right text-sm font-bold">{t.title}</button>)}{!tasks.some(t=>t.responsibleId===selectedPerson.id)&&<Empty text="אין משימות"/>}</div></Section>
         <div className="h-3"/><Section title="חופשות"><div className="space-y-2">{leaves.filter(l=>l.personId===selectedPerson.id).map(l=><div key={l.id} className="bg-slate-50 p-3 rounded-xl text-sm">{l.type} • {fmtDate(l.startDate)}–{fmtDate(l.endDate)}</div>)}{!leaves.some(l=>l.personId===selectedPerson.id)&&<Empty text="אין חופשות"/>}</div></Section>
       </div>}
 
-      {notificationsOpen&&<div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
+      {notificationsOpen&&<div className="fixed inset-0 z-50 bg-[#FFFDF9] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
         <Top title="התראות" onClose={()=>setNotificationsOpen(false)}/>
-        <button onClick={()=>setNotifications(n=>n.map(x=>({...x,read:true})))} className="text-xs font-bold text-[#5B4B67] my-3">סימון הכל כנקרא</button>
+        <button onClick={()=>setNotifications(n=>n.map(x=>({...x,read:true})))} className="text-xs font-bold text-[#725A7A] my-3">סימון הכל כנקרא</button>
         <div className="space-y-2">{notifications.map(n=><button key={n.id} onClick={()=>{setNotifications(xs=>xs.map(x=>x.id===n.id?{...x,read:true}:x));setNotificationsOpen(false);setActiveTab(n.target)}} className={`w-full p-4 rounded-2xl border text-right ${n.read?'bg-white':'bg-purple-50 border-purple-100'}`}><div className="text-sm font-bold">{n.text}</div><div className="text-[10px] text-slate-400 mt-1">{n.at}</div></button>)}</div>
       </div>}
 
       {isEditingBanner&&<Modal title="עריכת הודעת הבאנר" onClose={()=>setIsEditingBanner(false)}>
         <input value={tempBannerInput} onChange={e=>setTempBannerInput(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm" autoFocus/>
-        <button onClick={saveBanner} className="w-full bg-[#5B4B67] text-white p-3 rounded-2xl font-bold mt-3">שמור</button>
+        <button onClick={saveBanner} className="w-full bg-[#725A7A] text-white p-3 rounded-2xl font-bold mt-3">שמור</button>
       </Modal>}
     </div>
   </div>
@@ -310,12 +290,12 @@ function LeaveCalendar({month,selectedDay,leaves,onSelect,onPrev,onNext,onToday}
   return <div className="bg-white rounded-3xl p-4 border border-slate-100">
     <div className="flex items-center justify-between mb-4">
       <button onClick={onPrev} className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center"><ChevronRight className="w-4 h-4"/></button>
-      <div className="text-center"><div className="font-black text-sm">{monthName}</div><button onClick={onToday} className="text-[10px] text-[#5B4B67] font-bold mt-0.5">חזרה להיום</button></div>
+      <div className="text-center"><div className="font-black text-sm">{monthName}</div><button onClick={onToday} className="text-[10px] text-[#725A7A] font-bold mt-0.5">חזרה להיום</button></div>
       <button onClick={onNext} className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center"><ChevronLeft className="w-4 h-4"/></button>
     </div>
     <div className="grid grid-cols-7 gap-1 text-center mb-1">{weekdays.map(w=><div key={w} className="text-[10px] font-bold text-slate-400 py-1">{w}</div>)}</div>
     <div className="grid grid-cols-7 gap-1">
-      {cells.map((day,i)=>day===null?<div key={i} className="aspect-square"/>:<button key={i} onClick={()=>onSelect(iso(day))} className={`relative aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-bold transition ${selectedDay===iso(day)?'bg-[#5B4B67] text-white':'bg-slate-50 text-slate-700 active:bg-purple-50'}`}>
+      {cells.map((day,i)=>day===null?<div key={i} className="aspect-square"/>:<button key={i} onClick={()=>onSelect(iso(day))} className={`relative aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-bold transition ${selectedDay===iso(day)?'bg-[#725A7A] text-white':'bg-slate-50 text-slate-700 active:bg-purple-50'}`}>
         <span>{day}</span>
         {hasLeave(day)&&<span className={`absolute bottom-1 min-w-1.5 h-1.5 px-0.5 rounded-full ${selectedDay===iso(day)?'bg-white':'bg-emerald-500'}`}>{count(day)>1?<span className="sr-only">{count(day)}</span>:null}</span>}
       </button>)}
@@ -325,20 +305,20 @@ function LeaveCalendar({month,selectedDay,leaves,onSelect,onPrev,onNext,onToday}
 }
 
 function Header({title,subtitle,onBell,unread}:{title:string;subtitle:string;onBell:()=>void;unread:number}){
-  return <div className="flex items-center justify-between"><div><div className="flex items-center gap-1 text-xs font-semibold text-[#5B4B67]"><Sparkles className="w-3.5 h-3.5"/>היחידה שלנו</div><h1 className="text-2xl font-black mt-0.5">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={onBell} className="relative w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Bell className="w-4 h-4"/>{unread>0&&<span className="absolute -top-1 -left-1 bg-rose-500 text-white text-[9px] min-w-4 h-4 px-1 rounded-full">{unread}</span>}</button></div>
+  return <div className="flex items-center justify-between"><div><div className="flex items-center gap-1 text-xs font-semibold text-[#725A7A]"><Sparkles className="w-3.5 h-3.5"/>היחידה שלנו</div><h1 className="text-2xl font-black mt-0.5">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={onBell} className="relative w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Bell className="w-4 h-4"/>{unread>0&&<span className="absolute -top-1 -left-1 bg-rose-500 text-white text-[9px] min-w-4 h-4 px-1 rounded-full">{unread}</span>}</button></div>
 }
 function PageTitle({title,subtitle,action}:{title:string;subtitle:string;action:()=>void}){return <div className="flex items-center justify-between"><div><h1 className="text-2xl font-black">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={action} className="w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Plus className="w-5 h-5"/></button></div>}
-function Stat({title,value,icon,onClick,danger=false}:{title:string;value:number;icon:React.ReactNode;onClick:()=>void;danger?:boolean}){return <button onClick={onClick} className="bg-white p-4 rounded-3xl border text-right active:scale-[.98]"><div className="flex justify-between text-xs font-semibold text-slate-500"><span>{title}</span><span className={danger?'text-rose-600':'text-[#5B4B67]'}>{icon}</span></div><div className={`text-3xl font-black mt-2 ${danger?'text-rose-600':''}`}>{value}</div><div className="text-[10px] text-slate-400 mt-1">לחצי לצפייה</div></button>}
-function Section({title,action,onAction,children}:{title:string;action?:string;onAction?:()=>void;children:React.ReactNode}){return <div className="bg-white rounded-3xl p-5 border border-slate-100"><div className="flex justify-between mb-4"><h3 className="font-extrabold text-sm">{title}</h3>{action&&<button onClick={onAction} className="text-xs text-[#5B4B67] font-bold">{action}</button>}</div>{children}</div>}
+function Stat({title,value,icon,onClick,danger=false}:{title:string;value:number;icon:React.ReactNode;onClick:()=>void;danger?:boolean}){return <button onClick={onClick} className="bg-white p-4 rounded-3xl border text-right active:scale-[.98]"><div className="flex justify-between text-xs font-semibold text-slate-500"><span>{title}</span><span className={danger?'text-rose-600':'text-[#725A7A]'}>{icon}</span></div><div className={`text-3xl font-black mt-2 ${danger?'text-rose-600':''}`}>{value}</div><div className="text-[10px] text-slate-400 mt-1">לחצי לצפייה</div></button>}
+function Section({title,action,onAction,children}:{title:string;action?:string;onAction?:()=>void;children:React.ReactNode}){return <div className="bg-white rounded-3xl p-5 border border-slate-100"><div className="flex justify-between mb-4"><h3 className="font-extrabold text-sm">{title}</h3>{action&&<button onClick={onAction} className="text-xs text-[#725A7A] font-bold">{action}</button>}</div>{children}</div>}
 function Empty({text}:{text:string}){return <div className="text-xs text-slate-400 text-center py-4">{text}</div>}
-function Nav({active,icon,label,onClick}:{active:boolean;icon:React.ReactNode;label:string;onClick:()=>void}){return <button onClick={onClick} className={`flex flex-col items-center py-1 ${active?'text-[#5B4B67]':'text-slate-400'}`}><span className="[&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="text-[9px] mt-1 font-bold">{label}</span></button>}
+function Nav({active,icon,label,onClick}:{active:boolean;icon:React.ReactNode;label:string;onClick:()=>void}){return <button onClick={onClick} className={`flex flex-col items-center py-1 ${active?'text-[#725A7A]':'text-slate-400'}`}><span className="[&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="text-[9px] mt-1 font-bold">{label}</span></button>}
 function Modal({title,onClose,children}:{title:string;onClose:()=>void;children:React.ReactNode}){return <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" dir="rtl"><div className="w-full max-w-[380px] bg-white rounded-3xl p-5 max-h-[88vh] overflow-y-auto"><div className="flex justify-between mb-4"><button onClick={onClose}><X className="w-5 h-5 text-slate-400"/></button><h3 className="font-extrabold">{title}</h3><span className="w-5"/></div>{children}</div></div>}
-function Action({icon,title,onClick}:{icon:React.ReactNode;title:string;onClick:()=>void}){return <button onClick={onClick} className="w-full bg-slate-50 p-4 rounded-2xl flex gap-3 items-center mb-2"><span className="text-[#5B4B67] [&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="font-extrabold text-sm">{title}</span></button>}
+function Action({icon,title,onClick}:{icon:React.ReactNode;title:string;onClick:()=>void}){return <button onClick={onClick} className="w-full bg-slate-50 p-4 rounded-2xl flex gap-3 items-center mb-2"><span className="text-[#725A7A] [&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="font-extrabold text-sm">{title}</span></button>}
 function Top({title,onClose}:{title:string;onClose:()=>void}){return <div className="flex items-center justify-between"><button onClick={onClose} className="w-10 h-10 bg-white border rounded-2xl flex items-center justify-center"><ChevronRight className="w-5 h-5"/></button><h2 className="font-extrabold">{title}</h2><span className="w-10"/></div>}
 function Info({label,value}:{label:string;value:string}){return <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl my-1"><div className="text-[10px] text-slate-400 font-bold">{label}</div><div className="text-sm font-extrabold mt-0.5">{value}</div></div>}
 
 function Detail({title,onClose,onEdit,onDelete,meta,comments,audit,comment,setComment,onComment,children}:{title:string;onClose:()=>void;onEdit:()=>void;onDelete:()=>void;meta:string;comments:Comment[];audit:Audit[];comment:string;setComment:(x:string)=>void;onComment:()=>void;children:React.ReactNode}){
-  return <div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl"><Top title={title} onClose={onClose}/><div className="space-y-3 mt-4"><div className="bg-white p-4 rounded-3xl border space-y-2">{children}<div className="text-[10px] text-slate-400 pt-2">{meta}</div></div><div className="flex gap-2"><button onClick={onEdit} className="flex-1 bg-[#5B4B67] text-white p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Pencil className="w-4 h-4"/>עריכה</button><button onClick={onDelete} className="px-4 bg-rose-50 text-rose-600 rounded-2xl"><Trash2 className="w-4 h-4"/></button></div><Section title="צ׳אט"><div className="space-y-2">{comments.map(c=><div key={c.id} className="bg-slate-50 p-3 rounded-2xl"><div className="text-xs font-extrabold">{c.author}</div><div className="text-sm mt-1">{c.text}</div><div className="text-[9px] text-slate-400 mt-1">{c.at}</div></div>)}<div className="flex gap-2"><input value={comment} onChange={e=>setComment(e.target.value)} placeholder="כתיבת תגובה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={onComment} className="bg-[#5B4B67] text-white px-4 rounded-2xl"><MessageCircle className="w-4 h-4"/></button></div></div></Section><Section title="היסטוריית פעילות"><div className="space-y-2">{audit.map(a=><div key={a.id} className="text-xs border-r-2 border-purple-200 pr-3"><b>{a.actor}</b> {a.text}<div className="text-[9px] text-slate-400">{a.at}</div></div>)}</div></Section></div></div>
+  return <div className="fixed inset-0 z-50 bg-[#FFFDF9] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl"><Top title={title} onClose={onClose}/><div className="space-y-3 mt-4"><div className="bg-white p-4 rounded-3xl border space-y-2">{children}<div className="text-[10px] text-slate-400 pt-2">{meta}</div></div><div className="flex gap-2"><button onClick={onEdit} className="flex-1 bg-[#725A7A] text-white p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Pencil className="w-4 h-4"/>עריכה</button><button onClick={onDelete} className="px-4 bg-rose-50 text-rose-600 rounded-2xl"><Trash2 className="w-4 h-4"/></button></div><Section title="צ׳אט"><div className="space-y-2">{comments.map(c=><div key={c.id} className="bg-slate-50 p-3 rounded-2xl"><div className="text-xs font-extrabold">{c.author}</div><div className="text-sm mt-1">{c.text}</div><div className="text-[9px] text-slate-400 mt-1">{c.at}</div></div>)}<div className="flex gap-2"><input value={comment} onChange={e=>setComment(e.target.value)} placeholder="כתיבת תגובה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={onComment} className="bg-[#725A7A] text-white px-4 rounded-2xl"><MessageCircle className="w-4 h-4"/></button></div></div></Section><Section title="היסטוריית פעילות"><div className="space-y-2">{audit.map(a=><div key={a.id} className="text-xs border-r-2 border-purple-200 pr-3"><b>{a.actor}</b> {a.text}<div className="text-[9px] text-slate-400">{a.at}</div></div>)}</div></Section></div></div>
 }
 
 function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTask,onLeave,onEvent}:{type:'task'|'leave'|'event'|'person';editingId:string|null;people:Person[];tasks:Task[];leaves:Leave[];events:ScheduleEvent[];onClose:()=>void;onPerson:(p:Person,e:boolean)=>void;onTask:(t:Task,e:boolean)=>void;onLeave:(l:Leave,e:boolean)=>void;onEvent:(ev:ScheduleEvent,e:boolean)=>void}){
@@ -350,7 +330,7 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
     const isEdit=!!old, at=nowText();
     if(type==='person'){
       if(!f.name?.trim())return alert('צריך להזין שם');
-      const p:Person={id:old?.id||uid(),name:f.name,rank:f.rank||'',role:f.role||'',category:f.category||'soldier',phone:f.phone||'',notes:f.notes||'',avatarUrl:f.avatarUrl||'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop&crop=face',active:f.active??true};onPerson(p,isEdit);
+      const p:Person={id:old?.id||uid(),name:f.name,category:f.category||'soldier',notes:f.notes||'',avatarUrl:f.avatarUrl||'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop&crop=face',active:f.active??true};onPerson(p,isEdit);
     }
     if(type==='task'){
       if(!f.title?.trim())return alert('צריך להזין שם משימה'); const p=people.find(x=>x.id===f.responsibleId)||people[0];
@@ -367,10 +347,10 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
     onClose();
   };
   return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'חופש':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
-    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><input className={input} placeholder="דרגה" value={f.rank||''} onChange={e=>set('rank',e.target.value)}/><input className={input} placeholder="תפקיד" value={f.role||''} onChange={e=>set('role',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option></select><input className={input} placeholder="טלפון" value={f.phone||''} onChange={e=>set('phone',e.target.value)}/><textarea className={input} placeholder="הערות" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
-    {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.rank} {p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
-    {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.rank} {p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
+    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
+    {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
+    {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option><option>תמ״ל</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
     {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
-    <button onClick={save} className="w-full bg-[#5B4B67] text-white p-3.5 rounded-2xl font-bold flex justify-center items-center gap-2"><Save className="w-4 h-4"/>שמירה</button>
+    <button onClick={save} className="w-full bg-[#725A7A] text-white p-3.5 rounded-2xl font-bold flex justify-center items-center gap-2"><Save className="w-4 h-4"/>שמירה</button>
   </div></Modal>
 }
