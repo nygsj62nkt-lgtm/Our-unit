@@ -41,6 +41,39 @@ const todayISO = () => new Date().toISOString().slice(0,10);
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
+const AVATARS = [
+  ...Array.from({length:16},(_,i)=>({id:`human-${String(i+1).padStart(2,'0')}`,label:'דמות',src:`/avatars/human-${String(i+1).padStart(2,'0')}.jpg`,group:'people'})),
+  {id:'cat-siamese',label:'חתול סיאמי',src:'/avatars/cat-siamese.jpg',group:'animals'},
+  {id:'cat-black',label:'חתול שחור',src:'/avatars/cat-black.jpg',group:'animals'},
+  {id:'cat-orange',label:'חתול כתום',src:'/avatars/cat-orange.jpg',group:'animals'},
+  {id:'cat-gray',label:'חתול אפור',src:'/avatars/cat-gray.jpg',group:'animals'},
+  {id:'cat-tuxedo',label:'חתול טוקסידו',src:'/avatars/cat-tuxedo.jpg',group:'animals'},
+  {id:'cat-bow',label:'חתולה עם פפיון',src:'/avatars/cat-bow.jpg',group:'animals'},
+  {id:'cat-grumpy',label:'חתול זועף',src:'/avatars/cat-grumpy.jpg',group:'animals'},
+  {id:'cat-calico',label:'חתול קליקו',src:'/avatars/cat-calico.jpg',group:'animals'},
+  {id:'cat-diva',label:'חתול־דיווה ✨',src:'/avatars/cat-diva.jpg',group:'animals'},
+  {id:'cat-sleepy',label:'חתול ישנוני',src:'/avatars/cat-sleepy.jpg',group:'animals'},
+  {id:'dog-golden',label:'גולדן',src:'/avatars/dog-golden.jpg',group:'animals'},
+  {id:'dog-husky',label:'האסקי',src:'/avatars/dog-husky.jpg',group:'animals'},
+  {id:'dog-corgi',label:'קורגי',src:'/avatars/dog-corgi.jpg',group:'animals'},
+  {id:'bunny',label:'ארנב',src:'/avatars/bunny.jpg',group:'animals'},
+  {id:'hamster',label:'אוגר',src:'/avatars/hamster.jpg',group:'animals'},
+  {id:'ferret',label:'חמוס',src:'/avatars/ferret.jpg',group:'animals'},
+  {id:'hedgehog',label:'קיפוד',src:'/avatars/hedgehog.jpg',group:'animals'},
+  {id:'frog',label:'צפרדע',src:'/avatars/frog.jpg',group:'creatures'},
+  {id:'dino',label:'דינוזאור',src:'/avatars/dino.jpg',group:'creatures'},
+  {id:'axolotl',label:'אקסולוטל',src:'/avatars/axolotl.jpg',group:'creatures'},
+  {id:'ghost',label:'רוח',src:'/avatars/ghost.jpg',group:'creatures'},
+  {id:'penguin',label:'פינגווין',src:'/avatars/penguin.jpg',group:'animals'},
+  {id:'raccoon',label:'דביבון',src:'/avatars/raccoon.jpg',group:'animals'},
+  {id:'red-panda',label:'פנדה אדומה',src:'/avatars/red-panda.jpg',group:'animals'},
+  {id:'cow',label:'פרה',src:'/avatars/cow.jpg',group:'animals'},
+  {id:'sloth',label:'עצלן',src:'/avatars/sloth.jpg',group:'animals'},
+  {id:'duck',label:'ברווז',src:'/avatars/duck.jpg',group:'animals'},
+  {id:'narwhal',label:'נרוואל',src:'/avatars/narwhal.jpg',group:'creatures'},
+];
+
+
 const initialPeople:Person[] = [];
 
 const seedAudit = (text:string):Audit[] => [{id:uid(),actor:'עדי',text,at:nowText()}];
@@ -348,7 +381,7 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
     const isEdit=!!old, at=nowText();
     if(type==='person'){
       if(!f.name?.trim())return alert('צריך להזין שם');
-      const p:Person={id:old?.id||uid(),name:f.name,category:f.category||'soldier',notes:f.notes||'',avatarUrl:f.avatarUrl||'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop&crop=face',active:f.active??true};onPerson(p,isEdit);
+      const p:Person={id:old?.id||uid(),name:f.name,category:f.category||'soldier',notes:f.notes||'',avatarUrl:f.avatarUrl||'/avatars/human-01.jpg',active:f.active??true};onPerson(p,isEdit);
     }
     if(type==='task'){
       if(!f.title?.trim())return alert('צריך להזין שם משימה'); const p=people.find(x=>x.id===f.responsibleId)||people[0];
@@ -365,7 +398,7 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
     onClose();
   };
   return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'חופש':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
-    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
+    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><div><div className="text-xs font-extrabold mb-2">בחירת אווטאר</div><div className="grid grid-cols-5 gap-2 max-h-56 overflow-y-auto bg-[#F8F6F2] p-2 rounded-2xl border border-slate-100">{AVATARS.map(a=><button type="button" key={a.id} onClick={()=>set('avatarUrl',a.src)} title={a.label} className={`relative aspect-square rounded-2xl overflow-hidden border-2 transition ${f.avatarUrl===a.src?'border-[#7047D7] ring-2 ring-[#7047D7]/20':'border-transparent'}`}><img src={a.src} className="w-full h-full object-cover"/>{a.id==='cat-diva'&&<span className="absolute bottom-0 inset-x-0 bg-black/55 text-white text-[8px] py-0.5">דיווה ✨</span>}{f.avatarUrl===a.src&&<span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#7047D7] text-white flex items-center justify-center"><Check className="w-3 h-3"/></span>}</button>)}</div><div className="text-[10px] text-slate-400 mt-1">אפשר להחליף אווטאר בכל שלב</div></div><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
     {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
     {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option><option>תמ״ל</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
     {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
