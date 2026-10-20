@@ -60,7 +60,18 @@ const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 const nowText = () => new Date().toLocaleString('he-IL', {dateStyle:'short', timeStyle:'short'});
-const todayISO = () => new Date().toISOString().slice(0,10);
+const todayISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+};
+const addOneHour = (time:string) => {
+  const [h,m] = (time || '08:00').split(':').map(Number);
+  const total = (h*60 + m + 60) % (24*60);
+  return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+};
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
@@ -523,7 +534,7 @@ function Editor({type,editingId,people,tasks,leaves,events,avatarLibrary,setAvat
     }
     if(type==='event'){
       if(!f.title?.trim())return alert('צריך להזין כותרת');
-      const e:ScheduleEvent={id:old?.id||uid(),title:f.title,date:f.date||todayISO(),time:f.time||'08:00',endTime:f.endTime||'09:00',description:f.description||'',personIds:f.personIds||[],createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את האירוע':'הוסיפה אירוע',at}]};onEvent(e,isEdit);
+      const startTime=f.time||'08:00'; const rawEnd=f.endTime||''; const safeEnd=!rawEnd || rawEnd<=startTime ? addOneHour(startTime) : rawEnd; const e:ScheduleEvent={id:old?.id||uid(),title:f.title,date:f.date||todayISO(),time:startTime,endTime:safeEnd,description:f.description||'',personIds:f.personIds||[],createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את האירוע':'הוסיפה אירוע',at}]};onEvent(e,isEdit);
     }
     onClose();
   };
