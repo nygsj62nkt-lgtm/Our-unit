@@ -168,7 +168,7 @@ function AppCore() {
   if(!syncReady) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center font-sans"><div className="font-black text-[#7047D7]">מסנכרן נתונים…</div></div>;
 
   const notify = (text:string,target:Tab,entityId?:string) => setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
-  const currentLeaves = useMemo(() => leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO()),[leaves]);
+  const currentLeaves = leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO());
   const soldierOut = currentLeaves.filter(l=>l.category==='soldier');
   const commanderOut = currentLeaves.filter(l=>l.category==='commander');
   const overdueTasks = tasks.filter(t=>t.status==='overdue' || (t.status!=='completed' && t.dueDate < todayISO()));
