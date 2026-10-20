@@ -73,7 +73,7 @@ const initialPeople:Person[] = [];
 
 const seedAudit = (text:string):Audit[] => [{id:uid(),actor:'עדי',text,at:nowText()}];
 
-export default function App() {
+function AppCore() {
   const [authUser,setAuthUser] = useState<User|null>(null);
   const [authReady,setAuthReady] = useState(false);
   const [loginEmail,setLoginEmail] = useState('');
@@ -130,8 +130,9 @@ export default function App() {
 
   useEffect(()=>{
     if(!authUser) { setSyncReady(false); return; }
+    const safetyTimer = window.setTimeout(() => setSyncReady(true), 5000);
     const ref=doc(db,'appState','main');
-    return onSnapshot(ref,snap=>{
+    const unsubscribe = onSnapshot(ref,snap=>{
       const d:any=snap.data();
       if(d){
         const payload={people:d.people||[],tasks:d.tasks||[],leaves:d.leaves||[],events:d.events||[],notifications:d.notifications||[],duties:d.duties||[],managementMessages:d.managementMessages||[],avatarLibrary:d.avatarLibrary||[],bannerMessage:d.bannerMessage||'יום טוב ומנצח! ✨'};
@@ -142,6 +143,7 @@ export default function App() {
       } else { lastRemoteJson.current=''; }
       setSyncReady(true);
     },err=>{ console.error(err); setLoginError('אין גישה למסד הנתונים. צריך לעדכן את כללי Firestore.'); setSyncReady(true); });
+    return () => { window.clearTimeout(safetyTimer); unsubscribe(); };
   },[authUser]);
 
   useEffect(()=>{
@@ -150,7 +152,8 @@ export default function App() {
     const json=JSON.stringify(payload);
     if(json===lastRemoteJson.current) return;
     const timer=setTimeout(()=>{
-      setDoc(doc(db,'appState','main'),payload,{merge:false}).catch(err=>{console.error(err);setLoginError('השמירה בענן נכשלה.');});
+      const cleanPayload = JSON.parse(JSON.stringify(payload));
+      setDoc(doc(db,'appState','main'),cleanPayload,{merge:false}).catch(err=>{console.error(err);setLoginError('השמירה בענן נכשלה.');});
     },350);
     return ()=>clearTimeout(timer);
   },[authUser,syncReady,people,tasks,leaves,events,notifications,duties,managementMessages,avatarLibrary,bannerMessage]);
@@ -535,4 +538,19 @@ function Editor({type,editingId,people,tasks,leaves,events,avatarLibrary,setAvat
     {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
     <button onClick={save} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-bold flex justify-center items-center gap-2"><Save className="w-4 h-4"/>שמירה</button>
   </div></Modal>
+}
+
+
+class AppErrorBoundary extends React.Component<{children:React.ReactNode},{error:string}> {
+  state = { error: '' };
+  static getDerivedStateFromError(error:any){ return { error: error?.message || String(error) }; }
+  componentDidCatch(error:any, info:any){ console.error('App render error', error, info); }
+  render(){
+    if(this.state.error) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] p-6 font-sans flex items-center justify-center"><div className="max-w-sm w-full bg-white rounded-3xl border p-5 shadow"><h1 className="font-black text-xl mb-2">האתר נתקל בשגיאה</h1><p className="text-sm text-slate-500 mb-3">לא איבדת שום מידע. צלמי לי את ההודעה הזאת.</p><pre className="text-xs whitespace-pre-wrap bg-slate-50 p-3 rounded-2xl text-rose-600">{this.state.error}</pre><button onClick={()=>location.reload()} className="w-full mt-4 bg-[#7047D7] text-white p-3 rounded-2xl font-black">רענון</button></div></div>;
+    return this.props.children;
+  }
+}
+
+export default function App(){
+  return <AppErrorBoundary><AppCore/></AppErrorBoundary>;
 }
