@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { doc, getFirestore, onSnapshot, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import {
   Home, CheckSquare, Plus, Calendar, CalendarDays, Bell, SlidersHorizontal,
   ChevronRight, ChevronLeft, Users, Crown, AlertCircle, Palmtree, X, Check,
@@ -91,6 +92,7 @@ function AppCore() {
   const [loginPassword,setLoginPassword] = useState('');
   const [loginError,setLoginError] = useState('');
   const [syncReady,setSyncReady] = useState(false);
+  const [pushStatus,setPushStatus] = useState<'idle'|'working'|'enabled'|'unsupported'|'denied'>('idle');
   const lastRemoteJson = useRef('');
   const [activeTab,setActiveTab] = useState<Tab>('today');
   const [taskFilter,setTaskFilter] = useState<'all'|'open'|'overdue'|'done'>('all');
@@ -169,6 +171,29 @@ function AppCore() {
     return ()=>clearTimeout(timer);
   },[authUser,syncReady,people,tasks,leaves,events,notifications,duties,managementMessages,avatarLibrary,bannerMessage]);
 
+  const enablePush = async()=>{
+    if(!authUser) return;
+    setPushStatus('working');
+    try{
+      const supported = await isSupported();
+      if(!supported || !('serviceWorker' in navigator)){ setPushStatus('unsupported'); return; }
+      const permission = await Notification.requestPermission();
+      if(permission!=='granted'){ setPushStatus('denied'); return; }
+      const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      const messaging = getMessaging(firebaseApp);
+      const token = await getToken(messaging,{
+        vapidKey:'BM5djlrpEGQahKXA6zZSBAacG0WKqeGby56P945hVhPLQPiEPHeuo1HjHgQAKQ8EaVxgDn8qi3Bzav6EfiGnM3A',
+        serviceWorkerRegistration:registration
+      });
+      if(!token) throw new Error('לא התקבל token להתראות');
+      await setDoc(doc(db,'pushTokens',authUser.uid),{
+        uid:authUser.uid, token, email:authUser.email||'', name:CURRENT_USER,
+        updatedAt:serverTimestamp(), userAgent:navigator.userAgent
+      },{merge:true});
+      setPushStatus('enabled');
+    }catch(err){ console.error('Push setup failed',err); setPushStatus('unsupported'); }
+  };
+
   const doLogin=async()=>{
     setLoginError('');
     try{await signInWithEmailAndPassword(auth,loginEmail.trim(),loginPassword)}catch{setLoginError('האימייל או הסיסמה לא נכונים.');}
@@ -178,7 +203,14 @@ function AppCore() {
   if(!authUser) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center p-5 font-sans"><div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl border"><div className="text-xs font-bold text-[#7047D7]">היחידה שלנו</div><h1 className="text-2xl font-black mt-1 mb-5">כניסת מפקדים</h1><div className="space-y-3"><input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="אימייל" className="w-full p-3.5 bg-slate-50 border rounded-2xl"/><input type="password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')doLogin()}} placeholder="סיסמה" className="w-full p-3.5 bg-slate-50 border rounded-2xl"/>{loginError&&<div className="text-xs text-rose-500 font-bold">{loginError}</div>}<button onClick={doLogin} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-black">כניסה</button></div></div></div>;
   if(!syncReady) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center font-sans"><div className="font-black text-[#7047D7]">מסנכרן נתונים…</div></div>;
 
-  const notify = (text:string,target:Tab,entityId?:string) => setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
+  const notify = (text:string,target:Tab,entityId?:string) => {
+    setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
+    if(authUser){
+      addDoc(collection(db,'pushEvents'),{
+        text,target,entityId:entityId||'',actorUid:authUser.uid,actorName:CURRENT_USER,createdAt:serverTimestamp()
+      }).catch(err=>console.error('Push event write failed',err));
+    }
+  };
   const currentLeaves = leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO());
   const soldierOut = currentLeaves.filter(l=>l.category==='soldier');
   const commanderOut = currentLeaves.filter(l=>l.category==='commander');
@@ -227,6 +259,7 @@ function AppCore() {
     const text=managementText.trim(); if(!text)return;
     const me=people.find(p=>p.name===CURRENT_USER);
     setManagementMessages(xs=>[...xs,{id:uid(),author:CURRENT_USER,avatarUrl:me?.avatarUrl||DEFAULT_AVATAR,text,at:nowText()}]);
+    notify(`${CURRENT_USER} כתבה בצ׳אט המפקדים: ${text}`,'today');
     setManagementText('');
   };
 
@@ -235,6 +268,7 @@ function AppCore() {
       <div className="flex-1 overflow-y-auto px-4 pt-5 pb-6">
         {activeTab==='today' && <div className="space-y-4">
           <Header title="היום ביחידה" subtitle={new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} onBell={()=>setNotificationsOpen(true)} unread={unread}/>
+          {pushStatus!=='enabled'&&<button onClick={enablePush} disabled={pushStatus==='working'} className="w-full bg-white border border-purple-100 rounded-2xl p-3 flex items-center justify-between shadow-sm text-right"><div className="flex items-center gap-3"><span className="w-10 h-10 rounded-full bg-purple-50 text-[#7047D7] flex items-center justify-center"><Bell className="w-5 h-5"/></span><div><div className="font-black text-sm">הפעלת התראות לטלפון</div><div className="text-[10px] text-slate-400">{pushStatus==='working'?'מחברת התראות…':pushStatus==='denied'?'ההרשאה נדחתה — אפשר לאפשר בהגדרות':pushStatus==='unsupported'?'באייפון: הוסיפי למסך הבית ופתחי משם':'לקבלת עדכונים גם כשהאתר סגור'}</div></div></div><ChevronLeft className="w-4 h-4 text-slate-300"/></button>}
           <button onClick={()=>setManagementChatOpen(true)} className="w-full bg-gradient-to-l from-[#EEE1FF] to-[#F7EFFF] text-[#7047D7] rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
             <div className="flex items-center gap-3"><span className="w-10 h-10 rounded-full bg-white/70 flex items-center justify-center"><MessageCircle className="w-5 h-5"/></span><div className="text-right"><div className="font-black text-sm">צ׳אט מפקדים</div><div className="text-[10px] opacity-70">{managementMessages.length?`${managementMessages.length} הודעות`:'להתייעצויות ועדכונים בינינו'}</div></div></div><ChevronLeft className="w-4 h-4"/>
           </button>
