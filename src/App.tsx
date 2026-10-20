@@ -48,104 +48,14 @@ const todayISO = () => new Date().toISOString().slice(0,10);
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
-const AVATARS = [
-  {id:'person-01',label:'דמות 1',src:'/avatars/person-01.jpg',group:'people'},
-  {id:'person-02',label:'דמות 2',src:'/avatars/person-02.jpg',group:'people'},
-  {id:'person-03',label:'דמות 3',src:'/avatars/person-03.jpg',group:'people'},
-  {id:'person-04',label:'דמות 4',src:'/avatars/person-04.jpg',group:'people'},
-  {id:'person-05',label:'דמות 5',src:'/avatars/person-05.jpg',group:'people'},
-  {id:'person-06',label:'דמות 6',src:'/avatars/person-06.jpg',group:'people'},
-  {id:'person-07',label:'דמות 7',src:'/avatars/person-07.jpg',group:'people'},
-  {id:'person-08',label:'דמות 8',src:'/avatars/person-08.jpg',group:'people'},
-  {id:'person-09',label:'דמות 9',src:'/avatars/person-09.jpg',group:'people'},
-  {id:'person-10',label:'דמות 10',src:'/avatars/person-10.jpg',group:'people'},
-  {id:'person-11',label:'דמות 11',src:'/avatars/person-11.jpg',group:'people'},
-  {id:'person-12',label:'דמות 12',src:'/avatars/person-12.jpg',group:'people'},
-  {id:'person-13',label:'דמות 13',src:'/avatars/person-13.jpg',group:'people'},
-  {id:'person-14',label:'דמות 14',src:'/avatars/person-14.jpg',group:'people'},
-  {id:'person-15',label:'דמות 15',src:'/avatars/person-15.jpg',group:'people'},
-  {id:'person-16',label:'דמות 16',src:'/avatars/person-16.jpg',group:'people'},
-  {id:'person-17',label:'דמות 17',src:'/avatars/person-17.jpg',group:'people'},
-  {id:'person-18',label:'דמות 18',src:'/avatars/person-18.jpg',group:'people'},
-  {id:'person-19',label:'דמות 19',src:'/avatars/person-19.jpg',group:'people'},
-  {id:'person-20',label:'דמות 20',src:'/avatars/person-20.jpg',group:'people'},
-  {id:'person-21',label:'דמות 21',src:'/avatars/person-21.jpg',group:'people'},
-  {id:'person-22',label:'דמות 22',src:'/avatars/person-22.jpg',group:'people'},
-  {id:'person-23',label:'דמות 23',src:'/avatars/person-23.jpg',group:'people'},
-  {id:'person-24',label:'דמות 24',src:'/avatars/person-24.jpg',group:'people'},
-  {id:'person-25',label:'דמות 25',src:'/avatars/person-25.jpg',group:'people'},
-  {id:'person-26',label:'דמות 26',src:'/avatars/person-26.jpg',group:'people'},
-  {id:'person-27',label:'דמות 27',src:'/avatars/person-27.jpg',group:'people'},
-  {id:'person-28',label:'דמות 28',src:'/avatars/person-28.jpg',group:'people'},
-  {id:'person-29',label:'דמות 29',src:'/avatars/person-29.jpg',group:'people'},
-  {id:'person-30',label:'דמות 30',src:'/avatars/person-30.jpg',group:'people'},
-  {id:'person-31',label:'דמות 31',src:'/avatars/person-31.jpg',group:'people'},
-  {id:'person-32',label:'דמות 32',src:'/avatars/person-32.jpg',group:'people'},
-  {id:'person-33',label:'דמות 33',src:'/avatars/person-33.jpg',group:'people'},
-  {id:'person-34',label:'דמות 34',src:'/avatars/person-34.jpg',group:'people'},
-  {id:'person-35',label:'דמות 35',src:'/avatars/person-35.jpg',group:'people'},
-  {id:'person-36',label:'דמות 36',src:'/avatars/person-36.jpg',group:'people'},
-  {id:'person-37',label:'דמות 37',src:'/avatars/person-37.jpg',group:'people'},
-  {id:'person-38',label:'דמות 38',src:'/avatars/person-38.jpg',group:'people'},
-  {id:'person-39',label:'דמות 39',src:'/avatars/person-39.jpg',group:'people'},
-  {id:'person-40',label:'דמות 40',src:'/avatars/person-40.jpg',group:'people'},
-  {id:'person-41',label:'דמות 41',src:'/avatars/person-41.jpg',group:'people'},
-  {id:'person-42',label:'דמות 42',src:'/avatars/person-42.jpg',group:'people'},
-  {id:'person-43',label:'דמות 43',src:'/avatars/person-43.jpg',group:'people'},
-  {id:'person-44',label:'דמות 44',src:'/avatars/person-44.jpg',group:'people'},
-  {id:'person-45',label:'דמות 45',src:'/avatars/person-45.jpg',group:'people'},
-  {id:'person-46',label:'דמות 46',src:'/avatars/person-46.jpg',group:'people'},
-  {id:'person-47',label:'דמות 47',src:'/avatars/person-47.jpg',group:'people'},
-  {id:'person-48',label:'דמות 48',src:'/avatars/person-48.jpg',group:'people'},
-  {id:'cat-diva',label:'חתול־דיווה ✨',src:'/avatars/cat-diva.jpg',group:'animals'},
-  {id:'cat-siamese',label:'חתול סיאמי',src:'/avatars/cat-siamese.jpg',group:'animals'},
-  {id:'cat-tuxedo',label:'חתול טוקסידו',src:'/avatars/cat-tuxedo.jpg',group:'animals'},
-  {id:'cat-calico',label:'חתול קליקו',src:'/avatars/cat-calico.jpg',group:'animals'},
-  {id:'cat-grumpy',label:'חתול זועף',src:'/avatars/cat-grumpy.jpg',group:'animals'},
-  {id:'cat-bow',label:'חתולה עם פפיון',src:'/avatars/cat-bow.jpg',group:'animals'},
-  {id:'cat-orange',label:'חתול כתום',src:'/avatars/cat-orange.jpg',group:'animals'},
-  {id:'cat-gray',label:'חתול אפור',src:'/avatars/cat-gray.jpg',group:'animals'},
-  {id:'cat-sleepy',label:'חתול ישנוני',src:'/avatars/cat-sleepy.jpg',group:'animals'},
-  {id:'cat-black',label:'חתול שחור',src:'/avatars/cat-black.jpg',group:'animals'},
-  {id:'dog-golden',label:'גולדן',src:'/avatars/dog-golden.jpg',group:'animals'},
-  {id:'dog-corgi',label:'קורגי',src:'/avatars/dog-corgi.jpg',group:'animals'},
-  {id:'dog-husky',label:'האסקי',src:'/avatars/dog-husky.jpg',group:'animals'},
-  {id:'dog-white',label:'כלבלב לבן',src:'/avatars/dog-white.jpg',group:'animals'},
-  {id:'dog-poodle',label:'פודל',src:'/avatars/dog-poodle.jpg',group:'animals'},
-  {id:'dog-dachshund',label:'תחש',src:'/avatars/dog-dachshund.jpg',group:'animals'},
-  {id:'dog-jack',label:'ג׳ק ראסל',src:'/avatars/dog-jack.jpg',group:'animals'},
-  {id:'cat-sleepy-2',label:'cat-sleepy-2',src:'/avatars/cat-sleepy-2.jpg',group:'animals'},
-  {id:'dog-frenchie',label:'בולדוג צרפתי',src:'/avatars/dog-frenchie.jpg',group:'animals'},
-  {id:'dog-rottweiler',label:'רוטוויילר',src:'/avatars/dog-rottweiler.jpg',group:'animals'},
-  {id:'bunny-brown',label:'ארנב',src:'/avatars/bunny-brown.jpg',group:'animals'},
-  {id:'bunny-white',label:'ארנב לבן',src:'/avatars/bunny-white.jpg',group:'animals'},
-  {id:'bunny-gray',label:'ארנב אפור',src:'/avatars/bunny-gray.jpg',group:'animals'},
-  {id:'hamster',label:'אוגר',src:'/avatars/hamster.jpg',group:'animals'},
-  {id:'hedgehog',label:'קיפוד',src:'/avatars/hedgehog.jpg',group:'animals'},
-  {id:'raccoon',label:'דביבון',src:'/avatars/raccoon.jpg',group:'animals'},
-  {id:'otter',label:'לוטרה',src:'/avatars/otter.jpg',group:'animals'},
-  {id:'red-panda',label:'פנדה אדומה',src:'/avatars/red-panda.jpg',group:'animals'},
-  {id:'sloth',label:'עצלן',src:'/avatars/sloth.jpg',group:'animals'},
-  {id:'guinea-pig',label:'שרקן',src:'/avatars/guinea-pig.jpg',group:'animals'},
-  {id:'capybara',label:'קפיברה',src:'/avatars/capybara.jpg',group:'animals'},
-  {id:'highland-cow',label:'פרה סקוטית',src:'/avatars/highland-cow.jpg',group:'animals'},
-  {id:'dino',label:'דינוזאור',src:'/avatars/dino.jpg',group:'creatures'},
-  {id:'frog',label:'צפרדע מלכותית',src:'/avatars/frog.jpg',group:'creatures'},
-  {id:'axolotl',label:'אקסולוטל',src:'/avatars/axolotl.jpg',group:'creatures'},
-  {id:'penguin',label:'פינגווין',src:'/avatars/penguin.jpg',group:'animals'},
-  {id:'seal',label:'כלב ים',src:'/avatars/seal.jpg',group:'animals'},
-  {id:'octopus',label:'תמנון',src:'/avatars/octopus.jpg',group:'creatures'},
-  {id:'turtle',label:'צב',src:'/avatars/turtle.jpg',group:'animals'},
-  {id:'cockatiel',label:'קוקטייל',src:'/avatars/cockatiel.jpg',group:'animals'},
-  {id:'budgie',label:'תוכון',src:'/avatars/budgie.jpg',group:'animals'},
-  {id:'owl',label:'ינשוף',src:'/avatars/owl.jpg',group:'animals'},
-  {id:'crow',label:'עורב',src:'/avatars/crow.jpg',group:'animals'},
-  {id:'dragon',label:'דרקון',src:'/avatars/dragon.jpg',group:'creatures'},
-  {id:'unicorn-1',label:'חד־קרן',src:'/avatars/unicorn-1.jpg',group:'creatures'},
-  {id:'unicorn-2',label:'חד־קרן',src:'/avatars/unicorn-2.jpg',group:'creatures'},
-  {id:'creature-1',label:'יצור חמוד',src:'/avatars/creature-1.jpg',group:'creatures'},
-  {id:'creature-2',label:'יצור חמוד',src:'/avatars/creature-2.jpg',group:'creatures'},
-];
+const DEFAULT_AVATAR = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="40" fill="%23EEE7FF"/><circle cx="100" cy="78" r="34" fill="%237047D7" opacity=".72"/><path d="M42 178c5-39 28-59 58-59s53 20 58 59" fill="%237047D7" opacity=".72"/></svg>`)}`;
+const AVATAR_LIBRARY_KEY = 'our_unit_avatar_library_v1';
+type AvatarLibraryItem = { id:string; src:string; createdAt:string };
+const loadAvatarLibrary = ():AvatarLibraryItem[] => {
+  try { return JSON.parse(localStorage.getItem(AVATAR_LIBRARY_KEY) || '[]'); } catch { return []; }
+};
+const saveAvatarLibrary = (items:AvatarLibraryItem[]) => localStorage.setItem(AVATAR_LIBRARY_KEY, JSON.stringify(items));
+
 
 
 const initialPeople:Person[] = [];
@@ -242,7 +152,7 @@ export default function App() {
   const sendManagementMessage=()=>{
     const text=managementText.trim(); if(!text)return;
     const me=people.find(p=>p.name===CURRENT_USER);
-    setManagementMessages(xs=>[...xs,{id:uid(),author:CURRENT_USER,avatarUrl:me?.avatarUrl||'/avatars/cat-diva.jpg',text,at:nowText()}]);
+    setManagementMessages(xs=>[...xs,{id:uid(),author:CURRENT_USER,avatarUrl:me?.avatarUrl||DEFAULT_AVATAR,text,at:nowText()}]);
     setManagementText('');
   };
 
@@ -507,13 +417,40 @@ function Detail({title,onClose,onEdit,onDelete,meta,comments,audit,comment,setCo
 function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTask,onLeave,onEvent}:{type:'task'|'leave'|'event'|'person';editingId:string|null;people:Person[];tasks:Task[];leaves:Leave[];events:ScheduleEvent[];onClose:()=>void;onPerson:(p:Person,e:boolean)=>void;onTask:(t:Task,e:boolean)=>void;onLeave:(l:Leave,e:boolean)=>void;onEvent:(ev:ScheduleEvent,e:boolean)=>void}){
   const old:any = type==='task'?tasks.find(x=>x.id===editingId):type==='leave'?leaves.find(x=>x.id===editingId):type==='event'?events.find(x=>x.id===editingId):people.find(x=>x.id===editingId);
   const [f,setF]=useState<any>(old||{});
+  const [avatarLibrary,setAvatarLibrary] = useState<AvatarLibraryItem[]>(()=>loadAvatarLibrary());
   const set=(k:string,v:any)=>setF((x:any)=>({...x,[k]:v}));
+  const uploadAvatar=(file?:File)=>{
+    if(!file) return;
+    if(!file.type.startsWith('image/')) return alert('צריך לבחור קובץ תמונה');
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const image=new Image();
+      image.onload=()=>{
+        const size=360, canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+        const ctx=canvas.getContext('2d'); if(!ctx)return;
+        const scale=Math.max(size/image.width,size/image.height), w=image.width*scale, h=image.height*scale;
+        ctx.drawImage(image,(size-w)/2,(size-h)/2,w,h);
+        const src=canvas.toDataURL('image/jpeg',0.82);
+        const item={id:uid(),src,createdAt:nowText()};
+        const next=[item,...avatarLibrary];
+        try { saveAvatarLibrary(next); setAvatarLibrary(next); set('avatarUrl',src); }
+        catch { alert('מאגר התמונות המקומי מלא. אפשר למחוק תמונה ישנה או להמתין לחיבור Firebase.'); }
+      };
+      image.src=String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+  const deleteAvatar=(id:string)=>{
+    const item=avatarLibrary.find(a=>a.id===id); if(!item||!confirm('למחוק את התמונה מהמאגר?'))return;
+    const next=avatarLibrary.filter(a=>a.id!==id); saveAvatarLibrary(next); setAvatarLibrary(next);
+    if(f.avatarUrl===item.src)set('avatarUrl',DEFAULT_AVATAR);
+  };
   const input="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm";
   const save=()=>{
     const isEdit=!!old, at=nowText();
     if(type==='person'){
       if(!f.name?.trim())return alert('צריך להזין שם');
-      const p:Person={id:old?.id||uid(),name:f.name,category:f.category||'soldier',notes:f.notes||'',avatarUrl:f.avatarUrl||'/avatars/human-01.jpg',active:f.active??true};onPerson(p,isEdit);
+      const p:Person={id:old?.id||uid(),name:f.name,category:f.category||'soldier',notes:f.notes||'',avatarUrl:f.avatarUrl||DEFAULT_AVATAR,active:f.active??true};onPerson(p,isEdit);
     }
     if(type==='task'){
       if(!f.title?.trim())return alert('צריך להזין שם משימה'); const p=people.find(x=>x.id===f.responsibleId)||people[0];
@@ -530,7 +467,11 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
     onClose();
   };
   return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'חופש':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
-    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><div><div className="text-xs font-extrabold mb-2">בחירת אווטאר</div><div className="grid grid-cols-5 gap-2 max-h-56 overflow-y-auto bg-[#F8F6F2] p-2 rounded-2xl border border-slate-100">{AVATARS.map(a=><button type="button" key={a.id} onClick={()=>set('avatarUrl',a.src)} title={a.label} className={`relative aspect-square rounded-2xl overflow-hidden border-2 transition ${f.avatarUrl===a.src?'border-[#7047D7] ring-2 ring-[#7047D7]/20':'border-transparent'}`}><img src={a.src} className="w-full h-full object-cover"/>{a.id==='cat-diva'&&<span className="absolute bottom-0 inset-x-0 bg-black/55 text-white text-[8px] py-0.5">דיווה ✨</span>}{f.avatarUrl===a.src&&<span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#7047D7] text-white flex items-center justify-center"><Check className="w-3 h-3"/></span>}</button>)}</div><div className="text-[10px] text-slate-400 mt-1">אפשר להחליף אווטאר בכל שלב</div></div><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
+    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><div><div className="text-xs font-extrabold mb-2">תמונה / אווטאר</div>
+      <label className="w-full border-2 border-dashed border-[#CDBCF5] bg-[#F6F0FF] text-[#7047D7] rounded-2xl p-4 flex items-center justify-center gap-2 font-extrabold text-sm cursor-pointer active:scale-[.99]"><Plus className="w-4 h-4"/>העלאת תמונה למאגר<input type="file" accept="image/*" className="hidden" onChange={e=>{uploadAvatar(e.target.files?.[0]);e.currentTarget.value=''}}/></label>
+      <div className="text-[10px] text-slate-400 mt-1 mb-2">התמונה נחתכת אוטומטית לריבוע ונשמרת במאגר במכשיר הזה.</div>
+      {avatarLibrary.length>0?<div className="grid grid-cols-4 gap-2 max-h-56 overflow-y-auto bg-[#F8F6F2] p-2 rounded-2xl border border-slate-100">{avatarLibrary.map(a=><div key={a.id} className="relative"><button type="button" onClick={()=>set('avatarUrl',a.src)} className={`w-full aspect-square rounded-2xl overflow-hidden border-2 transition ${f.avatarUrl===a.src?'border-[#7047D7] ring-2 ring-[#7047D7]/20':'border-transparent'}`}><img src={a.src} className="w-full h-full object-cover"/>{f.avatarUrl===a.src&&<span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#7047D7] text-white flex items-center justify-center"><Check className="w-3 h-3"/></span>}</button><button type="button" onClick={()=>deleteAvatar(a.id)} className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white border shadow text-rose-500 flex items-center justify-center"><X className="w-3 h-3"/></button></div>)}</div>:<div className="bg-slate-50 rounded-2xl p-4 text-center text-xs text-slate-400">המאגר עדיין ריק — העלי תמונה ראשונה 💜</div>}
+      </div><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
     {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
     {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option><option>תמ״ל</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
     {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
