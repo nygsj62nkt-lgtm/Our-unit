@@ -1,0 +1,10 @@
+{
+  "name": "היחידה שלנו",
+  "short_name": "היחידה שלנו",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8F6F2",
+  "theme_color": "#7047D7",
+  "lang": "he",
+  "dir": "rtl"
+}
