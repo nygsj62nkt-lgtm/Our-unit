@@ -13,12 +13,12 @@ import {
   Users, 
   Crown, 
   AlertCircle, 
-  Clock, 
   Palmtree, 
-  Camera, 
   X, 
   Check,
-  Pencil
+  Pencil,
+  Sparkles,
+  ArrowUpRight
 } from 'lucide-react';
 
 interface Task {
@@ -47,7 +47,8 @@ interface ScheduleEvent {
   endTime?: string;
   title: string;
   dayIndex: number;
-  color: string;
+  badgeColor: string;
+  dotColor: string;
 }
 
 export default function App() {
@@ -57,9 +58,8 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
-  // מצב עריכת הבאנר ושמירתו בזיכרון המכשיר
   const [bannerMessage, setBannerMessage] = useState<string>(() => {
-    return localStorage.getItem('unit_banner_message') || 'יום טוב! ♡';
+    return localStorage.getItem('unit_banner_message') || 'יום טוב ומנצח! ✨';
   });
   const [isEditingBanner, setIsEditingBanner] = useState(false);
   const [tempBannerInput, setTempBannerInput] = useState('');
@@ -78,71 +78,61 @@ export default function App() {
     setIsEditingBanner(false);
   };
 
-  const [tasks, setTasks] = useState<Task[]>([
+  const [tasks] = useState<Task[]>([
     {
       id: '1',
       title: 'להכין ציוד לאימון',
       dueDate: '15.10.24',
       responsibleName: 'דניאל',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
-      imageUrl: 'https://images.unsplash.com/photo-1579829366248-204fe8413f31?w=200&h=200&fit=crop',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=face',
+      imageUrl: 'https://images.unsplash.com/photo-1579829366248-204fe8413f31?w=240&h=240&fit=crop',
       status: 'overdue',
-      description: 'להכין את כל הציוד לאימון פלוגתי:\n- וסטים\n- קסדות\n- ציוד קשר\n- מים וחטיפים'
+      description: 'להכין את כל הציוד לקראת אימון פלוגתי:\n- וסטים מותאמים\n- קסדות מאובזרות\n- קשר ותדרי חמ"ל\n- מים ומנות קרב'
     },
     {
       id: '2',
       title: 'להעביר רשימת חיילים',
       dueDate: '16.10.24',
       responsibleName: 'שיר',
-      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-      imageUrl: 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=200&h=200&fit=crop',
+      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=face',
+      imageUrl: 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=240&h=240&fit=crop',
       status: 'in_progress',
-      description: 'לסגור רשימה סופית של כל מחלקה 2 לקראת היציאה'
+      description: 'סגירת רשימה שמית סופית של מחלקה 2 לקראת היציאות'
     },
     {
       id: '3',
-      title: 'לתאם הסעה',
+      title: 'לתאם הסעות שבועיות',
       dueDate: '18.10.24',
       responsibleName: 'לוי',
-      avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-      imageUrl: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=200&h=200&fit=crop',
+      avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=face',
+      imageUrl: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=240&h=240&fit=crop',
       status: 'completed',
       description: 'תיאום אוטובוס לבסיס צאלים מול מוקד היסעים'
     },
     {
       id: '4',
-      title: 'לעדכן נהלים',
+      title: 'עדכון נוהל שבת',
       dueDate: '20.10.24',
       responsibleName: 'מאיה',
-      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face',
-      imageUrl: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=200&h=200&fit=crop',
+      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=face',
+      imageUrl: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=240&h=240&fit=crop',
       status: 'open',
-      description: 'הפצת דף נהלי בטיחות מעודכן לקראת החורף'
-    },
-    {
-      id: '5',
-      title: 'להזמין אוכל ליום גיבוש',
-      dueDate: '13.10.24',
-      responsibleName: 'רותם',
-      avatarUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&h=100&fit=crop&crop=face',
-      imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=200&h=200&fit=crop',
-      status: 'completed',
-      description: 'הזמנת פריסות בוקר וצהריים מחמ״ל לוגיסטיקה'
+      description: 'רענון פקודות ותדריך יציאות לסופ״ש הקרוב'
     }
   ]);
 
   const leaves: Leave[] = [
-    { id: '1', name: 'לוי', type: 'חופש', dateRange: '15.10 – 17.10', avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face', category: 'soldier' },
-    { id: '2', name: 'כהן', type: 'חופש', dateRange: '22.10 – 24.10', avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face', category: 'soldier' },
-    { id: '3', name: 'דניאל', type: 'גימלים', dateRange: '07.10 – 08.10', avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face', category: 'soldier' },
-    { id: '4', name: 'מאיה', type: 'קורס', dateRange: '28.10 – 30.10', avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face', category: 'soldier' }
+    { id: '1', name: 'סמל לוי', type: 'חופש', dateRange: '15.10 – 17.10', avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=face', category: 'soldier' },
+    { id: '2', name: 'רב״ט כהן', type: 'חופש', dateRange: '22.10 – 24.10', avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=face', category: 'soldier' },
+    { id: '3', name: 'טוראי דניאל', type: 'גימלים', dateRange: '07.10 – 08.10', avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=face', category: 'soldier' },
+    { id: '4', name: 'סג״ם מאיה', type: 'קורס', dateRange: '28.10 – 30.10', avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=face', category: 'commander' }
   ];
 
   const scheduleEvents: ScheduleEvent[] = [
-    { id: '1', time: '08:00', endTime: '09:00', title: 'תדריך בוקר', dayIndex: 2, color: 'bg-purple-100 text-purple-900 border-purple-200' },
-    { id: '2', time: '10:00', endTime: '12:00', title: 'אימון פלוגתי', dayIndex: 2, color: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
-    { id: '3', time: '13:00', endTime: '14:00', title: 'ישיבת מפקדים', dayIndex: 2, color: 'bg-rose-100 text-rose-900 border-rose-200' },
-    { id: '4', time: '16:00', endTime: '17:00', title: 'סיכום יום', dayIndex: 2, color: 'bg-blue-100 text-blue-900 border-blue-200' }
+    { id: '1', time: '08:00', endTime: '09:00', title: 'מסדר ותדריך בוקר', dayIndex: 2, badgeColor: 'bg-purple-50 text-[#5B4B67] border-purple-200/60', dotColor: 'bg-[#5B4B67]' },
+    { id: '2', time: '10:00', endTime: '12:00', title: 'אימון פלוגתי מרוכז', dayIndex: 2, badgeColor: 'bg-emerald-50 text-emerald-900 border-emerald-200/60', dotColor: 'bg-emerald-500' },
+    { id: '3', time: '13:00', endTime: '14:00', title: 'ישיבת מפקדי צוותים', dayIndex: 2, badgeColor: 'bg-amber-50 text-amber-900 border-amber-200/60', dotColor: 'bg-amber-500' },
+    { id: '4', time: '16:00', endTime: '17:00', title: 'סיכום יום ופקודות', dayIndex: 2, badgeColor: 'bg-blue-50 text-blue-900 border-blue-200/60', dotColor: 'bg-blue-500' }
   ];
 
   const filteredTasks = tasks.filter(t => {
@@ -153,217 +143,235 @@ export default function App() {
   });
 
   return (
-    <div className="flex justify-center bg-[#2B2B2B] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
-      <div className="w-full max-w-[420px] bg-[#F7F7F9] min-h-screen flex flex-col relative pb-24 shadow-2xl">
+    <div className="flex justify-center bg-[#18181B] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
+      <div className="w-full max-w-[440px] bg-[#FAF9F6] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40">
         
-        {/* תוכן המסכים */}
-        <div className="flex-1 overflow-y-auto">
+        {/* תוכן ראשי */}
+        <div className="flex-1 overflow-y-auto px-4 pt-5 pb-6">
+          
+          {/* ================= מסך ראשי: היום ================= */}
           {activeTab === 'today' && (
-            <div className="p-4 space-y-4">
-              {/* כותרת עליונה */}
-              <div className="flex items-center justify-between pt-2">
-                <div className="w-8" />
-                <div className="text-center">
-                  <h1 className="text-xl font-bold text-slate-800">היום</h1>
-                  <p className="text-xs text-slate-400">יום שלישי, 15 באוקטובר</p>
+            <div className="space-y-4">
+              
+              {/* כותרת עליונה בסגנון מודרני */}
+              <div className="flex items-center justify-between pb-1">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[#5B4B67]">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>היחידה שלנו</span>
+                  </div>
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-0.5">היום ביחידה</h1>
+                  <p className="text-xs text-slate-400 font-medium">יום שלישי, 15 באוקטובר 2024</p>
                 </div>
-                <button className="w-8 h-8 flex items-center justify-center text-slate-600 active:scale-95 transition-transform">
-                  <Bell className="w-5 h-5" />
+                <button className="w-10 h-10 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-center text-slate-600 active:scale-95 transition-all">
+                  <Bell className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* באנר זריחה מדברי עם אפשרות עריכה */}
+              {/* באנר פנורמי מודרני בעיצוב נקי עם זכוכית מעושנת */}
               <div 
                 onClick={handleOpenEditBanner}
-                className="relative h-28 rounded-2xl overflow-hidden shadow-sm flex items-center justify-center group cursor-pointer active:scale-[0.99] transition-transform"
-                title="לחץ לעריכת ההודעה"
+                className="relative h-32 rounded-3xl overflow-hidden shadow-sm flex items-center justify-center cursor-pointer group active:scale-[0.99] transition-transform"
               >
                 <img 
-                  src="https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=600&fit=crop" 
-                  alt="זריחה" 
-                  className="absolute inset-0 w-full h-full object-cover brightness-90"
+                  src="https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=800&fit=crop" 
+                  alt="באנר" 
+                  className="absolute inset-0 w-full h-full object-cover scale-105 group-hover:scale-110 transition-transform duration-700 brightness-90"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/25 to-black/10" />
                 
-                <h2 className="relative text-white text-3xl font-light tracking-wide drop-shadow-md select-none font-serif text-center px-4">
-                  {bannerMessage}
-                </h2>
+                <div className="relative text-center px-4">
+                  <h2 className="text-white text-2xl font-black drop-shadow-md tracking-wide">
+                    {bannerMessage}
+                  </h2>
+                  <span className="text-[11px] text-white/80 font-medium tracking-wider mt-1 block">לחץ לעריכת ההודעה ✎</span>
+                </div>
 
-                {/* אייקון עיפרון לעריכה שמוצג בעדינות בפינה */}
-                <div className="absolute top-2 left-2 bg-black/30 backdrop-blur-xs p-1.5 rounded-full text-white/80 group-hover:text-white">
-                  <Pencil className="w-3.5 h-3.5" />
+                <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-md p-1.5 rounded-full text-white">
+                  <Pencil className="w-3 h-3" />
                 </div>
               </div>
 
-              {/* 4 כרטיסי סטטוס עליונים */}
+              {/* 4 כרטיסי סטטוס בסטייל מודרני מרווח */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-[#EBF5FB] p-3.5 rounded-2xl flex items-center justify-between shadow-xs">
-                  <div>
-                    <span className="text-2xl font-black text-slate-800">3</span>
-                    <p className="text-xs font-medium text-slate-600 mt-0.5">חיילים בחופש</p>
+                <div className="bg-white p-4 rounded-3xl border border-slate-100/80 shadow-xs hover:shadow-sm transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-500">חיילים בחופש</span>
+                    <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+                      <Users className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="text-sky-500">
-                    <Users className="w-6 h-6" />
-                  </div>
+                  <div className="text-3xl font-black text-slate-900 mt-2">3</div>
+                  <div className="text-[10px] text-emerald-600 font-semibold mt-1">מתוך 24 סדיר</div>
                 </div>
 
-                <div className="bg-[#F3EEF9] p-3.5 rounded-2xl flex items-center justify-between shadow-xs">
-                  <div>
-                    <span className="text-2xl font-black text-slate-800">1</span>
-                    <p className="text-xs font-medium text-slate-600 mt-0.5">מפקדים בחופש</p>
+                <div className="bg-white p-4 rounded-3xl border border-slate-100/80 shadow-xs hover:shadow-sm transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-500">מפקדים בחופש</span>
+                    <div className="w-8 h-8 rounded-xl bg-purple-50 text-[#5B4B67] flex items-center justify-center">
+                      <Crown className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="text-[#6D597A]">
-                    <Crown className="w-6 h-6" />
-                  </div>
+                  <div className="text-3xl font-black text-slate-900 mt-2">1</div>
+                  <div className="text-[10px] text-purple-600 font-semibold mt-1">מפקד תורן נוכח</div>
                 </div>
 
-                <div className="bg-[#EBF7EE] p-3.5 rounded-2xl flex items-center justify-between shadow-xs">
-                  <div>
-                    <span className="text-2xl font-black text-slate-800">5</span>
-                    <p className="text-xs font-medium text-slate-600 mt-0.5">משימות פתוחות</p>
+                <div className="bg-white p-4 rounded-3xl border border-slate-100/80 shadow-xs hover:shadow-sm transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-500">משימות פתוחות</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                    </div>
                   </div>
-                  <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-white">
-                    <Check className="w-4 h-4 stroke-[3]" />
-                  </div>
+                  <div className="text-3xl font-black text-slate-900 mt-2">5</div>
+                  <div className="text-[10px] text-slate-400 font-medium mt-1">2 בביצוע כעת</div>
                 </div>
 
-                <div className="bg-[#FDECEB] p-3.5 rounded-2xl flex items-center justify-between shadow-xs">
-                  <div>
-                    <span className="text-2xl font-black text-slate-800">2</span>
-                    <p className="text-xs font-medium text-slate-600 mt-0.5">משימות באיחור</p>
+                <div className="bg-white p-4 rounded-3xl border border-slate-100/80 shadow-xs hover:shadow-sm transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-500">משימות באיחור</span>
+                    <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                      <AlertCircle className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white">
-                    <AlertCircle className="w-4 h-4 stroke-[2.5]" />
-                  </div>
+                  <div className="text-3xl font-black text-rose-600 mt-2">2</div>
+                  <div className="text-[10px] text-rose-500 font-medium mt-1">דורש טיפול מיידי</div>
                 </div>
               </div>
 
-              {/* כרטיס היום בלו"ז */}
-              <div className="bg-white rounded-2xl p-4 shadow-xs">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-slate-800 text-sm">היום בלו״ז</h3>
-                  <button onClick={() => setActiveTab('schedule')} className="text-xs text-slate-400 hover:text-slate-600">הצג הכל</button>
+              {/* כרטיס לו"ז יומי מעוצב כרשימת ציר זמן */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-100/80 shadow-xs">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-extrabold text-slate-900 text-sm">היום בלו״ז</h3>
+                  <button onClick={() => setActiveTab('schedule')} className="text-xs text-[#5B4B67] font-bold flex items-center gap-0.5">
+                    <span>לכל השבוע</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="space-y-3">
-                  <div className="flex items-center text-xs">
-                    <span className="w-14 text-slate-400 font-medium">08:00</span>
-                    <span className="text-slate-700 font-semibold">תדריך בוקר</span>
-                  </div>
-                  <div className="flex items-center text-xs">
-                    <span className="w-14 text-slate-400 font-medium">10:00</span>
-                    <span className="text-slate-700 font-semibold">אימון פלוגתי</span>
-                  </div>
-                  <div className="flex items-center text-xs">
-                    <span className="w-14 text-slate-400 font-medium">13:00</span>
-                    <span className="text-slate-700 font-semibold">ישיבת מפקדים</span>
-                  </div>
-                  <div className="flex items-center text-xs">
-                    <span className="w-14 text-slate-400 font-medium">16:00</span>
-                    <span className="text-slate-700 font-semibold">סיכום יום</span>
-                  </div>
+                
+                <div className="space-y-3.5">
+                  {[
+                    { time: '08:00', title: 'תדריך בוקר ומסדר', tag: 'חובה' },
+                    { time: '10:00', title: 'אימון פלוגתי מרוכז', tag: 'שטח' },
+                    { time: '13:00', title: 'ישיבת מפקדי מחלקות', tag: 'מפקדה' },
+                    { time: '16:00', title: 'סיכום יום ומשמרות', tag: 'סגירה' }
+                  ].map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between group">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-400 w-11">{item.time}</span>
+                        <div className="w-2 h-2 rounded-full bg-[#5B4B67]" />
+                        <span className="text-xs font-bold text-slate-800">{item.title}</span>
+                      </div>
+                      <span className="text-[10px] bg-slate-50 text-slate-500 px-2 py-0.5 rounded-md font-medium border border-slate-100">
+                        {item.tag}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* כרטיס חיילים בחופש היום */}
-              <div className="bg-white rounded-2xl p-4 shadow-xs">
-                <h3 className="font-bold text-slate-800 text-sm mb-3">חיילים בחופש היום 🌴</h3>
-                <div className="flex items-center gap-6">
-                  <div className="flex flex-col items-center">
-                    <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face" alt="דניאל" className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-xs" />
-                    <span className="text-xs text-slate-700 mt-1.5 font-medium">דניאל</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face" alt="כהן" className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-xs" />
-                    <span className="text-xs text-slate-700 mt-1.5 font-medium">כהן</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face" alt="לוי" className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-xs" />
-                    <span className="text-xs text-slate-700 mt-1.5 font-medium">לוי</span>
-                  </div>
+              <div className="bg-white rounded-3xl p-5 border border-slate-100/80 shadow-xs">
+                <div className="flex items-center justify-between mb-3.5">
+                  <h3 className="font-extrabold text-slate-900 text-sm">בחופשה היום 🌴</h3>
+                  <button onClick={() => setActiveTab('leaves')} className="text-xs text-slate-400 font-semibold">לוח חודשי</button>
+                </div>
+                <div className="flex items-center gap-4">
+                  {[
+                    { name: 'דניאל', role: 'גימלים', img: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face' },
+                    { name: 'כהן', role: 'חופש', img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face' },
+                    { name: 'לוי', role: 'חופש', img: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face' }
+                  ].map((p, i) => (
+                    <div key={i} className="flex flex-col items-center flex-1 bg-slate-50/70 py-2.5 rounded-2xl border border-slate-100">
+                      <img src={p.img} alt={p.name} className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-2xs" />
+                      <span className="text-xs font-bold text-slate-800 mt-1.5">{p.name}</span>
+                      <span className="text-[10px] text-slate-400 font-medium">{p.role}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
+
             </div>
           )}
 
+          {/* ================= מסך: משימות ================= */}
           {activeTab === 'tasks' && (
-            <div className="p-4 space-y-3">
-              <div className="flex items-center justify-between pt-2">
-                <button className="text-slate-600"><Search className="w-5 h-5" /></button>
-                <h1 className="text-xl font-bold text-slate-800">משימות</h1>
-                <button className="text-slate-600"><SlidersHorizontal className="w-5 h-5" /></button>
-              </div>
-
-              {/* גלולות סינון */}
-              <div className="flex items-center justify-between gap-1 bg-white p-1 rounded-xl text-xs shadow-xs">
-                <button 
-                  onClick={() => setTaskFilter('all')}
-                  className={`flex-1 py-1.5 rounded-lg font-medium transition-colors ${taskFilter === 'all' ? 'bg-[#6D597A] text-white' : 'text-slate-500'}`}
-                >
-                  הכל
-                </button>
-                <button 
-                  onClick={() => setTaskFilter('open')}
-                  className={`flex-1 py-1.5 rounded-lg font-medium transition-colors ${taskFilter === 'open' ? 'bg-[#6D597A] text-white' : 'text-slate-500'}`}
-                >
-                  פתוחות
-                </button>
-                <button 
-                  onClick={() => setTaskFilter('overdue')}
-                  className={`flex-1 py-1.5 rounded-lg font-medium transition-colors ${taskFilter === 'overdue' ? 'bg-[#6D597A] text-white' : 'text-slate-500'}`}
-                >
-                  באיחור
-                </button>
-                <button 
-                  onClick={() => setTaskFilter('done')}
-                  className={`flex-1 py-1.5 rounded-lg font-medium transition-colors ${taskFilter === 'done' ? 'bg-[#6D597A] text-white' : 'text-slate-500'}`}
-                >
-                  בוצעו
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">משימות פתוחות</h1>
+                  <p className="text-xs text-slate-400 font-medium">מעקב וניהול משימות היחידה</p>
+                </div>
+                <button className="w-10 h-10 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-center text-slate-600">
+                  <SlidersHorizontal className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* רשימת משימות */}
-              <div className="space-y-2.5 pt-1">
+              {/* מסנני משימות מודרניים */}
+              <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-xs text-xs font-bold">
+                {[
+                  { key: 'all', label: 'הכל' },
+                  { key: 'open', label: 'פתוחות' },
+                  { key: 'overdue', label: 'באיחור' },
+                  { key: 'done', label: 'הושלמו' }
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setTaskFilter(tab.key as any)}
+                    className={`flex-1 py-2 rounded-xl transition-all ${
+                      taskFilter === tab.key 
+                        ? 'bg-[#5B4B67] text-white shadow-xs' 
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* רשימת כרטיסי המשימות */}
+              <div className="space-y-2.5">
                 {filteredTasks.map((t) => (
                   <div 
                     key={t.id} 
                     onClick={() => setSelectedTask(t)}
-                    className="bg-white p-3 rounded-2xl flex items-center justify-between shadow-xs cursor-pointer active:scale-[0.99] transition-transform"
+                    className="bg-white p-3.5 rounded-3xl border border-slate-100 shadow-xs hover:border-slate-200 cursor-pointer active:scale-[0.99] transition-all flex items-center justify-between"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3.5">
                       {t.status === 'overdue' && (
-                        <div className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white shrink-0">
-                          <AlertCircle className="w-4 h-4 stroke-[2.5]" />
+                        <div className="w-7 h-7 rounded-full bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center shrink-0">
+                          <AlertCircle className="w-4 h-4" />
                         </div>
                       )}
                       {t.status === 'in_progress' && (
-                        <div className="w-6 h-6 rounded-full border-2 border-amber-500 flex items-center justify-center text-amber-500 shrink-0">
-                          <div className="w-2.5 h-2.5 bg-amber-500 rounded-full" />
+                        <div className="w-7 h-7 rounded-full bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shrink-0">
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                         </div>
                       )}
                       {t.status === 'completed' && (
-                        <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-white shrink-0">
-                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        <div className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shrink-0">
+                          <Check className="w-4 h-4 stroke-[3]" />
                         </div>
                       )}
                       {t.status === 'open' && (
-                        <div className="w-6 h-6 rounded-full border-2 border-slate-300 shrink-0" />
+                        <div className="w-7 h-7 rounded-full border-2 border-slate-200 shrink-0" />
                       )}
 
                       <div>
-                        <h4 className="font-bold text-slate-800 text-sm leading-tight">{t.title}</h4>
-                        <span className={`text-[11px] font-medium ${t.status === 'overdue' ? 'text-rose-500' : 'text-slate-400'}`}>
-                          {t.dueDate}
-                        </span>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <img src={t.avatarUrl} alt={t.responsibleName} className="w-4 h-4 rounded-full object-cover" />
-                          <span className="text-[11px] text-slate-500">אחראי/ת: {t.responsibleName}</span>
+                        <h4 className="font-extrabold text-slate-800 text-sm leading-snug">{t.title}</h4>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[11px] font-bold ${t.status === 'overdue' ? 'text-rose-500' : 'text-slate-400'}`}>
+                            {t.dueDate}
+                          </span>
+                          <span className="text-slate-200">•</span>
+                          <span className="text-[11px] text-slate-500 font-medium">אחראי: {t.responsibleName}</span>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
                       {t.imageUrl && (
-                        <img src={t.imageUrl} alt="צירוף" className="w-12 h-12 rounded-xl object-cover shadow-2xs" />
+                        <img src={t.imageUrl} alt="" className="w-12 h-12 rounded-2xl object-cover shadow-2xs border border-slate-100" />
                       )}
                       <ChevronLeft className="w-4 h-4 text-slate-300" />
                     </div>
@@ -373,138 +381,143 @@ export default function App() {
             </div>
           )}
 
+          {/* ================= מסך: חופשות ================= */}
           {activeTab === 'leaves' && (
-            <div className="p-4 space-y-3">
-              <div className="flex items-center justify-between pt-2">
-                <div className="w-8" />
-                <h1 className="text-xl font-bold text-slate-800">חופשות</h1>
-                <button onClick={() => setIsAddModalOpen(true)} className="text-slate-700"><Plus className="w-6 h-6" /></button>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">ניהול חופשות</h1>
+                  <p className="text-xs text-slate-400 font-medium">חיילים ומפקדים מחוץ לבסיס</p>
+                </div>
+                <button onClick={() => setIsAddModalOpen(true)} className="w-10 h-10 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-center text-slate-800">
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
 
               {/* טאבים חיילים/מפקדים */}
-              <div className="flex bg-[#EFEFF1] p-1 rounded-xl text-xs font-semibold">
+              <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-xs text-xs font-bold">
                 <button 
                   onClick={() => setLeaveTab('soldiers')}
-                  className={`flex-1 py-1.5 rounded-lg transition-colors ${leaveTab === 'soldiers' ? 'bg-[#6D597A] text-white shadow-xs' : 'text-slate-600'}`}
+                  className={`flex-1 py-2 rounded-xl transition-all ${leaveTab === 'soldiers' ? 'bg-[#5B4B67] text-white shadow-xs' : 'text-slate-500'}`}
                 >
-                  חיילים
+                  חיילים (3)
                 </button>
                 <button 
                   onClick={() => setLeaveTab('commanders')}
-                  className={`flex-1 py-1.5 rounded-lg transition-colors ${leaveTab === 'commanders' ? 'bg-[#6D597A] text-white shadow-xs' : 'text-slate-600'}`}
+                  className={`flex-1 py-2 rounded-xl transition-all ${leaveTab === 'commanders' ? 'bg-[#5B4B67] text-white shadow-xs' : 'text-slate-500'}`}
                 >
-                  מפקדים
+                  מפקדים (1)
                 </button>
               </div>
 
-              {/* לוח שנה אוקטובר 2024 */}
-              <div className="bg-white rounded-2xl p-4 shadow-xs">
+              {/* לוח שנה מעוצב ומינימליסטי */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-xs">
                 <div className="flex items-center justify-between mb-4">
                   <ChevronRight className="w-5 h-5 text-slate-400 cursor-pointer" />
-                  <span className="font-bold text-slate-800 text-sm">אוקטובר 2024</span>
+                  <span className="font-extrabold text-slate-900 text-sm">אוקטובר 2024</span>
                   <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer" />
                 </div>
                 
-                <div className="grid grid-cols-7 text-center text-xs text-slate-400 mb-2 font-medium">
+                <div className="grid grid-cols-7 text-center text-xs text-slate-400 mb-3 font-bold">
                   <span>א׳</span><span>ב׳</span><span>ג׳</span><span>ד׳</span><span>ה׳</span><span>ו׳</span><span>ש׳</span>
                 </div>
                 
-                <div className="grid grid-cols-7 text-center gap-y-2 text-xs font-semibold text-slate-700">
-                  <span className="text-slate-300"></span><span className="text-slate-300"></span>
+                <div className="grid grid-cols-7 text-center gap-y-2 text-xs font-bold text-slate-700">
+                  <span className="text-slate-200"></span><span className="text-slate-200"></span>
                   <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
                   <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span>
                   <span>13</span>
-                  <span className="w-6 h-6 mx-auto rounded-full bg-[#6D597A] text-white flex items-center justify-center">14</span>
-                  <span className="w-6 h-6 mx-auto rounded-full bg-emerald-200 text-emerald-900 flex items-center justify-center">15</span>
+                  <span className="w-7 h-7 mx-auto rounded-xl bg-[#5B4B67] text-white flex items-center justify-center shadow-xs">14</span>
+                  <span className="w-7 h-7 mx-auto rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-xs">15</span>
                   <span>16</span><span>17</span><span>18</span><span>19</span>
                   <span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span>
                   <span>27</span>
-                  <span className="w-6 h-6 mx-auto rounded-full bg-[#6D597A] text-white flex items-center justify-center">28</span>
+                  <span className="w-7 h-7 mx-auto rounded-xl bg-[#5B4B67] text-white flex items-center justify-center shadow-xs">28</span>
                   <span>29</span><span>30</span><span>31</span>
                 </div>
               </div>
 
-              {/* רשימת חופשות */}
-              <div className="pt-2">
-                <h3 className="font-bold text-slate-800 text-sm mb-2.5">רשימת חופשות</h3>
-                <div className="space-y-2">
-                  {leaves.map((l) => (
-                    <div key={l.id} className="bg-white p-3 rounded-2xl flex items-center justify-between shadow-xs">
-                      <div className="flex items-center gap-3">
-                        <img src={l.avatarUrl} alt={l.name} className="w-9 h-9 rounded-full object-cover" />
-                        <div>
-                          <h4 className="font-bold text-slate-800 text-sm">{l.name}</h4>
-                          <span className="text-[11px] text-slate-400">{l.dateRange}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${
-                          l.type === 'חופש' ? 'bg-emerald-100 text-emerald-700' :
-                          l.type === 'גימלים' ? 'bg-sky-100 text-sky-700' :
-                          'bg-purple-100 text-[#6D597A]'
-                        }`}>
-                          {l.type}
-                        </span>
-                        <ChevronLeft className="w-4 h-4 text-slate-300" />
+              {/* רשימת החופשות */}
+              <div className="space-y-2.5">
+                {leaves.map((l) => (
+                  <div key={l.id} className="bg-white p-3.5 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <img src={l.avatarUrl} alt={l.name} className="w-10 h-10 rounded-full object-cover border border-slate-100 shadow-2xs" />
+                      <div>
+                        <h4 className="font-extrabold text-slate-800 text-sm">{l.name}</h4>
+                        <span className="text-xs text-slate-400 font-medium">{l.dateRange}</span>
                       </div>
                     </div>
-                  ))}
-                </div>
+                    <span className={`text-[11px] font-extrabold px-3 py-1 rounded-xl ${
+                      l.type === 'חופש' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                      l.type === 'גימלים' ? 'bg-sky-50 text-sky-700 border border-sky-100' :
+                      'bg-purple-50 text-[#5B4B67] border border-purple-100'
+                    }`}>
+                      {l.type}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
+          {/* ================= מסך: לו"ז שבועי ================= */}
           {activeTab === 'schedule' && (
-            <div className="p-4 space-y-3">
-              <div className="flex items-center justify-between pt-2">
-                <div className="w-8" />
-                <h1 className="text-xl font-bold text-slate-800">לו״ז שבועי</h1>
-                <button onClick={() => setIsAddModalOpen(true)} className="text-slate-700"><Plus className="w-6 h-6" /></button>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">לו״ז שבועי</h1>
+                  <p className="text-xs text-slate-400 font-medium">תכנון אימונים ופעילות</p>
+                </div>
+                <button onClick={() => setIsAddModalOpen(true)} className="w-10 h-10 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-center text-slate-800">
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* שבוע */}
-              <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl shadow-xs text-xs font-semibold text-slate-700">
+              {/* סרגל שבוע מודרני */}
+              <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-2xl border border-slate-100 shadow-xs text-xs font-bold text-slate-700">
                 <ChevronRight className="w-4 h-4 text-slate-400 cursor-pointer" />
                 <span>13.10 – 19.10.2024</span>
                 <ChevronLeft className="w-4 h-4 text-slate-400 cursor-pointer" />
               </div>
 
-              {/* ימות השבוע */}
-              <div className="grid grid-cols-5 gap-1.5 text-center text-xs">
-                <div className="bg-white py-2 rounded-xl shadow-xs">
-                  <div className="text-slate-400 text-[10px]">א׳</div>
-                  <div className="font-bold text-slate-800 mt-0.5">13.10</div>
-                </div>
-                <div className="bg-white py-2 rounded-xl shadow-xs">
-                  <div className="text-slate-400 text-[10px]">ב׳</div>
-                  <div className="font-bold text-slate-800 mt-0.5">14.10</div>
-                </div>
-                <div className="bg-[#6D597A] text-white py-2 rounded-xl shadow-xs">
-                  <div className="text-white/80 text-[10px]">ג׳</div>
-                  <div className="font-bold mt-0.5">15.10</div>
-                </div>
-                <div className="bg-white py-2 rounded-xl shadow-xs">
-                  <div className="text-slate-400 text-[10px]">ד׳</div>
-                  <div className="font-bold text-slate-800 mt-0.5">16.10</div>
-                </div>
-                <div className="bg-white py-2 rounded-xl shadow-xs">
-                  <div className="text-slate-400 text-[10px]">ה׳</div>
-                  <div className="font-bold text-slate-800 mt-0.5">17.10</div>
-                </div>
+              {/* ימות השבוע ככרטיסיות */}
+              <div className="grid grid-cols-5 gap-2 text-center text-xs">
+                {[
+                  { day: 'א׳', date: '13.10', active: false },
+                  { day: 'ב׳', date: '14.10', active: false },
+                  { day: 'ג׳', date: '15.10', active: true },
+                  { day: 'ד׳', date: '16.10', active: false },
+                  { day: 'ה׳', date: '17.10', active: false }
+                ].map((d, i) => (
+                  <div 
+                    key={i} 
+                    className={`py-3 rounded-2xl border transition-all ${
+                      d.active 
+                        ? 'bg-[#5B4B67] text-white border-[#5B4B67] shadow-sm' 
+                        : 'bg-white text-slate-800 border-slate-100 shadow-xs'
+                    }`}
+                  >
+                    <div className={`text-[10px] font-bold ${d.active ? 'text-white/80' : 'text-slate-400'}`}>{d.day}</div>
+                    <div className="font-extrabold mt-0.5">{d.date}</div>
+                  </div>
+                ))}
               </div>
 
-              {/* גריד שעות */}
-              <div className="bg-white rounded-2xl p-3 shadow-xs space-y-2 text-xs">
-                {['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'].map((hour) => {
+              {/* ציר זמן שעות מעודכן */}
+              <div className="bg-white rounded-3xl p-4 border border-slate-100 shadow-xs space-y-3">
+                {['08:00', '10:00', '13:00', '16:00'].map((hour) => {
                   const ev = scheduleEvents.find(e => e.time === hour);
                   return (
-                    <div key={hour} className="flex items-start gap-3 border-b border-slate-50 pb-1.5 min-h-[32px]">
-                      <span className="text-slate-400 text-[11px] w-10 font-medium shrink-0 pt-0.5">{hour}</span>
+                    <div key={hour} className="flex items-start gap-3.5 border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
+                      <span className="text-xs font-bold text-slate-400 w-11 shrink-0 pt-1">{hour}</span>
                       <div className="flex-1">
                         {ev ? (
-                          <div className={`p-2 rounded-xl border text-xs font-semibold ${ev.color}`}>
-                            <div>{ev.title}</div>
-                            <div className="text-[10px] opacity-75 font-normal mt-0.5">{ev.time} – {ev.endTime}</div>
+                          <div className={`p-3 rounded-2xl border ${ev.badgeColor}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="font-extrabold text-xs">{ev.title}</span>
+                              <span className="text-[10px] opacity-75 font-semibold">{ev.time} – {ev.endTime}</span>
+                            </div>
                           </div>
                         ) : (
                           <div className="h-6" />
@@ -516,201 +529,150 @@ export default function App() {
               </div>
             </div>
           )}
+
         </div>
 
-        {/* בר ניווט תחתון קבוע */}
-        <div className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none z-30">
-          <div className="w-full max-w-[420px] bg-white border-t border-slate-100 flex items-center justify-around py-2.5 px-3 shadow-lg pointer-events-auto">
+        {/* בר ניווט תחתון צף ומודרני (Floating Glassmorphism Navbar) */}
+        <div className="fixed bottom-4 left-0 right-0 flex justify-center px-4 z-40 pointer-events-none">
+          <div className="w-full max-w-[400px] bg-white/90 backdrop-blur-xl border border-slate-200/60 rounded-3xl px-4 py-2 flex items-center justify-between shadow-xl pointer-events-auto">
+            
             <button 
               onClick={() => setActiveTab('today')}
-              className={`flex flex-col items-center transition-colors ${activeTab === 'today' ? 'text-[#6D597A]' : 'text-slate-400'}`}
+              className={`flex flex-col items-center py-1 transition-all ${activeTab === 'today' ? 'text-[#5B4B67] font-black' : 'text-slate-400'}`}
             >
               <Home className="w-5 h-5" />
-              <span className="text-[10px] mt-1 font-medium">היום</span>
+              <span className="text-[10px] mt-1 font-bold">היום</span>
             </button>
 
             <button 
               onClick={() => setActiveTab('tasks')}
-              className={`flex flex-col items-center transition-colors ${activeTab === 'tasks' ? 'text-[#6D597A]' : 'text-slate-400'}`}
+              className={`flex flex-col items-center py-1 transition-all ${activeTab === 'tasks' ? 'text-[#5B4B67] font-black' : 'text-slate-400'}`}
             >
               <CheckSquare className="w-5 h-5" />
-              <span className="text-[10px] mt-1 font-medium">משימות</span>
+              <span className="text-[10px] mt-1 font-bold">משימות</span>
             </button>
 
-            {/* כפתור פלוס עגול ובולט */}
+            {/* כפתור פלוס מרכזי מודרני מוגבה */}
             <button 
               onClick={() => setIsAddModalOpen(true)}
-              className="w-12 h-12 -mt-5 rounded-full bg-[#6D597A] text-white flex items-center justify-center shadow-md active:scale-90 transition-transform"
+              className="w-12 h-12 rounded-2xl bg-[#5B4B67] text-white flex items-center justify-center shadow-md shadow-[#5B4B67]/30 active:scale-90 transition-transform -mt-5"
             >
               <Plus className="w-6 h-6 stroke-[2.5]" />
             </button>
 
             <button 
               onClick={() => setActiveTab('leaves')}
-              className={`flex flex-col items-center transition-colors ${activeTab === 'leaves' ? 'text-[#6D597A]' : 'text-slate-400'}`}
+              className={`flex flex-col items-center py-1 transition-all ${activeTab === 'leaves' ? 'text-[#5B4B67] font-black' : 'text-slate-400'}`}
             >
               <Palmtree className="w-5 h-5" />
-              <span className="text-[10px] mt-1 font-medium">חופשות</span>
+              <span className="text-[10px] mt-1 font-bold">חופשות</span>
             </button>
 
             <button 
               onClick={() => setActiveTab('schedule')}
-              className={`flex flex-col items-center transition-colors ${activeTab === 'schedule' ? 'text-[#6D597A]' : 'text-slate-400'}`}
+              className={`flex flex-col items-center py-1 transition-all ${activeTab === 'schedule' ? 'text-[#5B4B67] font-black' : 'text-slate-400'}`}
             >
               <CalendarDays className="w-5 h-5" />
-              <span className="text-[10px] mt-1 font-medium">לו״ז</span>
+              <span className="text-[10px] mt-1 font-bold">לו״ז</span>
             </button>
+
           </div>
         </div>
 
-        {/* מודאל "הוספה חדשה" */}
+        {/* ================= מודאל הוספה מהירה ================= */}
         {isAddModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="w-full max-w-[380px] bg-white rounded-3xl p-5 shadow-2xl space-y-4">
+            <div className="w-full max-w-[360px] bg-white rounded-3xl p-5 shadow-2xl space-y-3.5">
               <div className="flex items-center justify-between pb-1">
                 <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                   <X className="w-5 h-5" />
                 </button>
-                <h3 className="text-lg font-bold text-slate-800">הוספה חדשה</h3>
+                <h3 className="text-base font-extrabold text-slate-900">הוספה חדשה</h3>
                 <div className="w-5" />
               </div>
 
-              <div className="space-y-3">
-                <button 
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="w-full bg-[#F3EEF9] p-4 rounded-2xl flex items-center gap-4 text-right hover:bg-[#ede5f7] transition-colors"
-                >
-                  <div className="w-11 h-11 rounded-full bg-[#6D597A] text-white flex items-center justify-center shrink-0">
-                    <Check className="w-6 h-6 stroke-[3]" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-slate-800 text-sm">הוספת משימה</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">צור משימה חדשה עם פירוט, תאריך יעד ותמונות</p>
-                  </div>
-                </button>
-
-                <button 
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="w-full bg-[#EBF7EE] p-4 rounded-2xl flex items-center gap-4 text-right hover:bg-[#e2f3e6] transition-colors"
-                >
-                  <div className="w-11 h-11 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                    <Palmtree className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-slate-800 text-sm">הוספת חופש</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">הוסף חופשה לחייל או למפקד</p>
-                  </div>
-                </button>
-
-                <button 
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="w-full bg-[#EBF5FB] p-4 rounded-2xl flex items-center gap-4 text-right hover:bg-[#e0effa] transition-colors"
-                >
-                  <div className="w-11 h-11 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0">
-                    <Calendar className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-slate-800 text-sm">הוספת אירוע לו״ז</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">צור אירוע חדש בלו״ז השבועי</p>
-                  </div>
-                </button>
+              <div className="space-y-2.5">
+                {[
+                  { title: 'הוספת משימה', desc: 'יצירת משימה עם יעד ותמונות', bg: 'bg-[#F3EEF9]', text: 'text-[#5B4B67]', icon: CheckSquare },
+                  { title: 'הוספת חופשה', desc: 'רישום ימי חופש לחייל או מפקד', bg: 'bg-emerald-50', text: 'text-emerald-700', icon: Palmtree },
+                  { title: 'הוספת אירוע בלו״ז', desc: 'שיבוץ אימון, תדריך או פגישה', bg: 'bg-sky-50', text: 'text-sky-700', icon: Calendar }
+                ].map((item, idx) => (
+                  <button 
+                    key={idx}
+                    onClick={() => setIsAddModalOpen(false)}
+                    className={`w-full ${item.bg} p-3.5 rounded-2xl flex items-center gap-3.5 text-right active:scale-[0.98] transition-transform`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl bg-white shadow-2xs ${item.text} flex items-center justify-center shrink-0`}>
+                      <item.icon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-slate-800 text-sm">{item.title}</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{item.desc}</p>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           </div>
         )}
 
-        {/* מודאל "פרטי משימה" */}
+        {/* ================= מודאל פרטי משימה ================= */}
         {selectedTask && (
-          <div className="fixed inset-0 z-50 bg-[#F7F7F9] overflow-y-auto flex flex-col justify-between">
-            <div className="p-4 space-y-4 max-w-[420px] mx-auto w-full">
-              {/* סרגל עליון */}
-              <div className="flex items-center justify-between pt-2">
-                <button onClick={() => setSelectedTask(null)} className="text-slate-600">
-                  <ChevronRight className="w-6 h-6" />
+          <div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto flex flex-col justify-between p-4 max-w-[440px] mx-auto">
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <button onClick={() => setSelectedTask(null)} className="w-10 h-10 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-600">
+                  <ChevronRight className="w-5 h-5" />
                 </button>
-                <h2 className="text-base font-bold text-slate-800">פרטי משימה</h2>
-                <div className="w-6" />
+                <h2 className="text-base font-extrabold text-slate-900">פרטי משימה</h2>
+                <div className="w-10" />
               </div>
 
-              {/* כותרת משימה וסטטוס */}
-              <div className="flex items-center gap-2 pt-2">
-                <div className="w-7 h-7 rounded-full bg-rose-500 flex items-center justify-center text-white shrink-0">
-                  <AlertCircle className="w-4 h-4 stroke-[2.5]" />
-                </div>
-                <h1 className="text-lg font-black text-slate-800">{selectedTask.title}</h1>
-              </div>
-
-              {/* שדות הגדרה */}
-              <div className="space-y-2.5 text-xs">
-                <div className="bg-white p-3 rounded-xl flex items-center justify-between shadow-2xs">
-                  <span className="text-slate-400 font-medium">סטטוס</span>
-                  <div className="bg-[#FDECEB] text-rose-500 px-3 py-1 rounded-lg font-bold flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-rose-500" />
-                    באיחור
-                  </div>
-                </div>
-
-                <div className="bg-white p-3 rounded-xl flex items-center justify-between shadow-2xs">
-                  <span className="text-slate-400 font-medium">תאריך יעד</span>
-                  <div className="flex items-center gap-2 font-bold text-slate-700">
-                    <Calendar className="w-4 h-4 text-slate-400" />
-                    {selectedTask.dueDate}.2024
-                  </div>
-                </div>
-
-                <div className="bg-white p-3 rounded-xl flex items-center justify-between shadow-2xs">
-                  <span className="text-slate-400 font-medium">אחראי/ת</span>
-                  <div className="flex items-center gap-2 font-bold text-slate-800">
-                    <img src={selectedTask.avatarUrl} alt="" className="w-6 h-6 rounded-full object-cover" />
-                    {selectedTask.responsibleName}
-                  </div>
-                </div>
-              </div>
-
-              {/* פירוט */}
-              <div className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-700">פירוט</span>
-                <div className="bg-white p-4 rounded-2xl text-xs text-slate-700 leading-relaxed shadow-2xs whitespace-pre-line">
-                  {selectedTask.description || 'אין פירוט נוסף למשימה זו.'}
-                </div>
-              </div>
-
-              {/* תמונות */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">תמונות (2)</span>
-                </div>
+              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs space-y-3">
                 <div className="flex items-center gap-2.5">
-                  <img 
-                    src="https://images.unsplash.com/photo-1579829366248-204fe8413f31?w=200&h=200&fit=crop" 
-                    alt="תמונה 1" 
-                    className="w-20 h-20 rounded-2xl object-cover shadow-xs"
-                  />
-                  <img 
-                    src="https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=200&h=200&fit=crop" 
-                    alt="תמונה 2" 
-                    className="w-20 h-20 rounded-2xl object-cover shadow-xs"
-                  />
-                  <button className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 bg-white">
-                    <Plus className="w-6 h-6" />
-                  </button>
+                  <div className="w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center text-xs font-bold">!</div>
+                  <h1 className="text-lg font-black text-slate-900">{selectedTask.title}</h1>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                  <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold">תאריך יעד</span>
+                    <span className="font-extrabold text-slate-800 mt-0.5 block">{selectedTask.dueDate}</span>
+                  </div>
+                  <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold">אחראי/ת</span>
+                    <span className="font-extrabold text-slate-800 mt-0.5 block">{selectedTask.responsibleName}</span>
+                  </div>
                 </div>
               </div>
+
+              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs space-y-2">
+                <span className="text-xs font-extrabold text-slate-800">פירוט משימה</span>
+                <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">
+                  {selectedTask.description || 'אין פירוט נוסף.'}
+                </p>
+              </div>
+
+              {selectedTask.imageUrl && (
+                <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs space-y-2">
+                  <span className="text-xs font-extrabold text-slate-800">תמונות וקבצים מצורפים</span>
+                  <img src={selectedTask.imageUrl} alt="" className="w-full h-44 rounded-2xl object-cover" />
+                </div>
+              )}
             </div>
 
-            {/* כפתור עדכון משימה סגול בתחתית */}
-            <div className="p-4 max-w-[420px] mx-auto w-full pb-8">
+            <div className="pt-4 pb-6">
               <button 
                 onClick={() => setSelectedTask(null)}
-                className="w-full bg-[#6D597A] text-white py-3.5 rounded-2xl font-bold text-sm shadow-md active:scale-[0.98] transition-transform"
+                className="w-full bg-[#5B4B67] text-white py-3.5 rounded-2xl font-bold text-sm shadow-md shadow-[#5B4B67]/20 active:scale-[0.98] transition-transform"
               >
-                עדכון משימה
+                סיום ועריכה
               </button>
             </div>
           </div>
         )}
 
-        {/* מודאל עריכת הודעת הבאנר */}
+        {/* ================= מודאל עריכת הודעת הבאנר ================= */}
         {isEditingBanner && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-[340px] bg-white rounded-3xl p-5 shadow-2xl space-y-4">
@@ -718,18 +680,18 @@ export default function App() {
                 <button onClick={() => setIsEditingBanner(false)} className="text-slate-400 hover:text-slate-600">
                   <X className="w-5 h-5" />
                 </button>
-                <h3 className="text-base font-bold text-slate-800">עריכת הודעת הבאנר</h3>
+                <h3 className="text-base font-extrabold text-slate-900">עריכת הודעת הבאנר</h3>
                 <div className="w-5" />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-xs text-slate-500 font-medium">הודעה שתוצג בראש הדף:</label>
+              <div className="space-y-1.5">
+                <label className="text-xs text-slate-500 font-bold">הודעה שתוצג בראש הדף:</label>
                 <input 
                   type="text" 
                   value={tempBannerInput}
                   onChange={(e) => setTempBannerInput(e.target.value)}
-                  placeholder="לדוגמה: יום טוב! ♡ או ברוכים הבאים"
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#6D597A]"
+                  placeholder="לדוגמה: יום טוב ומנצח! ✨"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium focus:outline-none focus:border-[#5B4B67]"
                   autoFocus
                 />
               </div>
@@ -737,13 +699,13 @@ export default function App() {
               <div className="flex items-center gap-2 pt-1">
                 <button 
                   onClick={handleSaveBanner}
-                  className="flex-1 bg-[#6D597A] text-white py-2.5 rounded-xl font-bold text-xs shadow-sm active:scale-95 transition-transform"
+                  className="flex-1 bg-[#5B4B67] text-white py-2.5 rounded-2xl font-bold text-xs shadow-xs active:scale-95 transition-transform"
                 >
                   שמור שינויים
                 </button>
                 <button 
                   onClick={() => setIsEditingBanner(false)}
-                  className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs active:scale-95 transition-transform"
+                  className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
                 >
                   ביטול
                 </button>
