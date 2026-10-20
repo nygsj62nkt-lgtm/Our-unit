@@ -66,6 +66,11 @@ export default function App() {
   const [notificationsOpen,setNotificationsOpen] = useState(false);
   const [comment,setComment] = useState('');
   const [selectedDay,setSelectedDay] = useState(todayISO());
+  const [leaveSelectedDay,setLeaveSelectedDay] = useState(todayISO());
+  const [leaveMonth,setLeaveMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
   const [bannerMessage,setBannerMessage] = useState(() => localStorage.getItem('unit_banner_message') || 'יום טוב ומנצח! ✨');
   const [isEditingBanner,setIsEditingBanner] = useState(false);
@@ -102,6 +107,9 @@ export default function App() {
   const filteredTasks = tasks.filter(t => taskFilter==='all' ? true : taskFilter==='done' ? t.status==='completed' : taskFilter==='overdue' ? overdueTasks.some(x=>x.id===t.id) : t.status==='open' || t.status==='in_progress');
   const unread = notifications.filter(n=>!n.read).length;
   const todayEvents = events.filter(e=>e.date===todayISO()).sort((a,b)=>a.time.localeCompare(b.time));
+  const selectedDayLeaves = leaves.filter(l =>
+    l.category===leaveTab && l.startDate<=leaveSelectedDay && l.endDate>=leaveSelectedDay
+  );
 
   const goTasks = (filter:'all'|'open'|'overdue'|'done') => { setTaskFilter(filter); setActiveTab('tasks'); };
   const openBanner = () => { setTempBannerInput(bannerMessage); setIsEditingBanner(true); };
@@ -164,12 +172,37 @@ export default function App() {
         {activeTab==='leaves' && <div className="space-y-4">
           <PageTitle title="ניהול חופשות" subtitle="חיילים ומפקדים מחוץ לבסיס" action={()=>openForm('leave')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-            <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>חיילים ({leaves.filter(x=>x.category==='soldier').length})</button>
-            <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>מפקדים ({leaves.filter(x=>x.category==='commander').length})</button>
+            <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>חיילים</button>
+            <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>מפקדים</button>
           </div>
-          <div className="space-y-2.5">{leaves.filter(l=>l.category===leaveTab).map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-white p-3.5 rounded-3xl border border-slate-100 flex items-center justify-between text-right">
-            <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div><div className="text-[10px] text-slate-400">נוסף ע״י {l.createdBy}</div></div></div><span className="text-[11px] font-extrabold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl">{l.type}</span>
-          </button>)}</div>
+
+          <LeaveCalendar
+            month={leaveMonth}
+            selectedDay={leaveSelectedDay}
+            leaves={leaves.filter(l=>l.category===leaveTab)}
+            onSelect={setLeaveSelectedDay}
+            onPrev={()=>setLeaveMonth(m=>new Date(m.getFullYear(),m.getMonth()-1,1))}
+            onNext={()=>setLeaveMonth(m=>new Date(m.getFullYear(),m.getMonth()+1,1))}
+            onToday={()=>{
+              const d=new Date();
+              setLeaveMonth(new Date(d.getFullYear(),d.getMonth(),1));
+              setLeaveSelectedDay(todayISO());
+            }}
+          />
+
+          <Section title={`${fmtDate(leaveSelectedDay)} • ${leaveTab==='soldier'?'חיילים':'מפקדים'} בחופש`}>
+            <div className="space-y-2.5">
+              {selectedDayLeaves.length ? selectedDayLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
+                <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div><div className="text-[10px] text-slate-400">נוסף ע״י {l.createdBy}</div></div></div><span className="text-[11px] font-extrabold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl">{l.type}</span>
+              </button>) : <Empty text="אין חופשות ביום הזה"/>}
+            </div>
+          </Section>
+
+          <Section title="כל החופשות">
+            <div className="space-y-2.5">{leaves.filter(l=>l.category===leaveTab).map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
+              <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div></div></div><span className="text-[11px] font-extrabold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl">{l.type}</span>
+            </button>)}</div>
+          </Section>
         </div>}
 
         {activeTab==='schedule' && <div className="space-y-4">
@@ -258,6 +291,36 @@ export default function App() {
         <button onClick={saveBanner} className="w-full bg-[#5B4B67] text-white p-3 rounded-2xl font-bold mt-3">שמור</button>
       </Modal>}
     </div>
+  </div>
+}
+
+
+function LeaveCalendar({month,selectedDay,leaves,onSelect,onPrev,onNext,onToday}:{month:Date;selectedDay:string;leaves:Leave[];onSelect:(d:string)=>void;onPrev:()=>void;onNext:()=>void;onToday:()=>void}){
+  const year=month.getFullYear(), mon=month.getMonth();
+  const first=new Date(year,mon,1);
+  const daysInMonth=new Date(year,mon+1,0).getDate();
+  const offset=first.getDay();
+  const cells:(number|null)[]=[...Array(offset).fill(null),...Array.from({length:daysInMonth},(_,i)=>i+1)];
+  while(cells.length%7) cells.push(null);
+  const iso=(day:number)=>`${year}-${String(mon+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const hasLeave=(day:number)=>leaves.some(l=>l.startDate<=iso(day)&&l.endDate>=iso(day));
+  const count=(day:number)=>leaves.filter(l=>l.startDate<=iso(day)&&l.endDate>=iso(day)).length;
+  const monthName=new Intl.DateTimeFormat('he-IL',{month:'long',year:'numeric'}).format(month);
+  const weekdays=['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+  return <div className="bg-white rounded-3xl p-4 border border-slate-100">
+    <div className="flex items-center justify-between mb-4">
+      <button onClick={onPrev} className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center"><ChevronRight className="w-4 h-4"/></button>
+      <div className="text-center"><div className="font-black text-sm">{monthName}</div><button onClick={onToday} className="text-[10px] text-[#5B4B67] font-bold mt-0.5">חזרה להיום</button></div>
+      <button onClick={onNext} className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center"><ChevronLeft className="w-4 h-4"/></button>
+    </div>
+    <div className="grid grid-cols-7 gap-1 text-center mb-1">{weekdays.map(w=><div key={w} className="text-[10px] font-bold text-slate-400 py-1">{w}</div>)}</div>
+    <div className="grid grid-cols-7 gap-1">
+      {cells.map((day,i)=>day===null?<div key={i} className="aspect-square"/>:<button key={i} onClick={()=>onSelect(iso(day))} className={`relative aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-bold transition ${selectedDay===iso(day)?'bg-[#5B4B67] text-white':'bg-slate-50 text-slate-700 active:bg-purple-50'}`}>
+        <span>{day}</span>
+        {hasLeave(day)&&<span className={`absolute bottom-1 min-w-1.5 h-1.5 px-0.5 rounded-full ${selectedDay===iso(day)?'bg-white':'bg-emerald-500'}`}>{count(day)>1?<span className="sr-only">{count(day)}</span>:null}</span>}
+      </button>)}
+    </div>
+    <div className="flex items-center justify-center gap-2 mt-3 text-[10px] text-slate-400"><span className="w-2 h-2 rounded-full bg-emerald-500"/><span>יש חופש ביום הזה</span></div>
   </div>
 }
 
