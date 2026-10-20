@@ -1,4 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
+import { doc, getFirestore, onSnapshot, setDoc } from 'firebase/firestore';
 import {
   Home, CheckSquare, Plus, Calendar, CalendarDays, Bell, SlidersHorizontal,
   ChevronRight, ChevronLeft, Users, Crown, AlertCircle, Palmtree, X, Check,
@@ -42,19 +45,27 @@ interface Duty {
 }
 interface ManagementMessage { id:string; author:string; avatarUrl:string; text:string; at:string; }
 
-const CURRENT_USER = 'עדי';
+let CURRENT_USER = 'מפקד/ת';
+
+const firebaseConfig = {
+  apiKey: 'AIzaSyB7McjnXFMPyIkIzNML4l2dXzo2Nf2Wvt8',
+  authDomain: 'our-unit.firebaseapp.com',
+  projectId: 'our-unit',
+  storageBucket: 'our-unit.firebasestorage.app',
+  messagingSenderId: '136384065875',
+  appId: '1:136384065875:web:cb2dac4435893a7e7c31a6',
+  measurementId: 'G-EVMG15FL0K'
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
 const nowText = () => new Date().toLocaleString('he-IL', {dateStyle:'short', timeStyle:'short'});
 const todayISO = () => new Date().toISOString().slice(0,10);
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
 const DEFAULT_AVATAR = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="40" fill="%23EEE7FF"/><circle cx="100" cy="78" r="34" fill="%237047D7" opacity=".72"/><path d="M42 178c5-39 28-59 58-59s53 20 58 59" fill="%237047D7" opacity=".72"/></svg>`)}`;
-const AVATAR_LIBRARY_KEY = 'our_unit_avatar_library_v1';
 type AvatarLibraryItem = { id:string; src:string; createdAt:string };
-const loadAvatarLibrary = ():AvatarLibraryItem[] => {
-  try { return JSON.parse(localStorage.getItem(AVATAR_LIBRARY_KEY) || '[]'); } catch { return []; }
-};
-const saveAvatarLibrary = (items:AvatarLibraryItem[]) => localStorage.setItem(AVATAR_LIBRARY_KEY, JSON.stringify(items));
 
 
 
@@ -63,6 +74,13 @@ const initialPeople:Person[] = [];
 const seedAudit = (text:string):Audit[] => [{id:uid(),actor:'עדי',text,at:nowText()}];
 
 export default function App() {
+  const [authUser,setAuthUser] = useState<User|null>(null);
+  const [authReady,setAuthReady] = useState(false);
+  const [loginEmail,setLoginEmail] = useState('');
+  const [loginPassword,setLoginPassword] = useState('');
+  const [loginError,setLoginError] = useState('');
+  const [syncReady,setSyncReady] = useState(false);
+  const lastRemoteJson = useRef('');
   const [activeTab,setActiveTab] = useState<Tab>('today');
   const [taskFilter,setTaskFilter] = useState<'all'|'open'|'overdue'|'done'>('all');
   const [leaveTab,setLeaveTab] = useState<Category>('soldier');
@@ -83,7 +101,7 @@ export default function App() {
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
-  const [bannerMessage,setBannerMessage] = useState(() => localStorage.getItem('unit_banner_message') || 'יום טוב ומנצח! ✨');
+  const [bannerMessage,setBannerMessage] = useState('יום טוב ומנצח! ✨');
   const [isEditingBanner,setIsEditingBanner] = useState(false);
   const [tempBannerInput,setTempBannerInput] = useState('');
 
@@ -93,6 +111,7 @@ export default function App() {
   const [notifications,setNotifications] = useState<Notification[]>([]);
   const [duties,setDuties] = useState<Duty[]>([]);
   const [managementMessages,setManagementMessages] = useState<ManagementMessage[]>([]);
+  const [avatarLibrary,setAvatarLibrary] = useState<AvatarLibraryItem[]>([]);
   const [managementChatOpen,setManagementChatOpen] = useState(false);
   const [managementText,setManagementText] = useState('');
   const [dutyFormOpen,setDutyFormOpen] = useState(false);
@@ -103,6 +122,47 @@ export default function App() {
   const [dutyStartTime,setDutyStartTime] = useState('');
   const [dutyEndTime,setDutyEndTime] = useState('');
   const [dutyNote,setDutyNote] = useState('');
+
+  useEffect(()=>onAuthStateChanged(auth,user=>{
+    setAuthUser(user); setAuthReady(true);
+    if(user) CURRENT_USER = user.displayName || user.email?.split('@')[0] || 'מפקד/ת';
+  }),[]);
+
+  useEffect(()=>{
+    if(!authUser) { setSyncReady(false); return; }
+    const ref=doc(db,'appState','main');
+    return onSnapshot(ref,snap=>{
+      const d:any=snap.data();
+      if(d){
+        const payload={people:d.people||[],tasks:d.tasks||[],leaves:d.leaves||[],events:d.events||[],notifications:d.notifications||[],duties:d.duties||[],managementMessages:d.managementMessages||[],avatarLibrary:d.avatarLibrary||[],bannerMessage:d.bannerMessage||'יום טוב ומנצח! ✨'};
+        lastRemoteJson.current=JSON.stringify(payload);
+        setPeople(payload.people); setTasks(payload.tasks); setLeaves(payload.leaves); setEvents(payload.events);
+        setNotifications(payload.notifications); setDuties(payload.duties); setManagementMessages(payload.managementMessages);
+        setAvatarLibrary(payload.avatarLibrary); setBannerMessage(payload.bannerMessage);
+      } else { lastRemoteJson.current=''; }
+      setSyncReady(true);
+    },err=>{ console.error(err); setLoginError('אין גישה למסד הנתונים. צריך לעדכן את כללי Firestore.'); setSyncReady(true); });
+  },[authUser]);
+
+  useEffect(()=>{
+    if(!authUser||!syncReady) return;
+    const payload={people,tasks,leaves,events,notifications,duties,managementMessages,avatarLibrary,bannerMessage};
+    const json=JSON.stringify(payload);
+    if(json===lastRemoteJson.current) return;
+    const timer=setTimeout(()=>{
+      setDoc(doc(db,'appState','main'),payload,{merge:false}).catch(err=>{console.error(err);setLoginError('השמירה בענן נכשלה.');});
+    },350);
+    return ()=>clearTimeout(timer);
+  },[authUser,syncReady,people,tasks,leaves,events,notifications,duties,managementMessages,avatarLibrary,bannerMessage]);
+
+  const doLogin=async()=>{
+    setLoginError('');
+    try{await signInWithEmailAndPassword(auth,loginEmail.trim(),loginPassword)}catch{setLoginError('האימייל או הסיסמה לא נכונים.');}
+  };
+
+  if(!authReady) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center font-sans"><div className="font-black text-[#7047D7]">טוען את היחידה שלנו…</div></div>;
+  if(!authUser) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center p-5 font-sans"><div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl border"><div className="text-xs font-bold text-[#7047D7]">היחידה שלנו</div><h1 className="text-2xl font-black mt-1 mb-5">כניסת מפקדים</h1><div className="space-y-3"><input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="אימייל" className="w-full p-3.5 bg-slate-50 border rounded-2xl"/><input type="password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')doLogin()}} placeholder="סיסמה" className="w-full p-3.5 bg-slate-50 border rounded-2xl"/>{loginError&&<div className="text-xs text-rose-500 font-bold">{loginError}</div>}<button onClick={doLogin} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-black">כניסה</button></div></div></div>;
+  if(!syncReady) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center font-sans"><div className="font-black text-[#7047D7]">מסנכרן נתונים…</div></div>;
 
   const notify = (text:string,target:Tab,entityId?:string) => setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
   const currentLeaves = useMemo(() => leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO()),[leaves]);
@@ -119,7 +179,7 @@ export default function App() {
 
   const goTasks = (filter:'all'|'open'|'overdue'|'done') => { setTaskFilter(filter); setActiveTab('tasks'); };
   const openBanner = () => { setTempBannerInput(bannerMessage); setIsEditingBanner(true); };
-  const saveBanner = () => { if(tempBannerInput.trim()){setBannerMessage(tempBannerInput.trim());localStorage.setItem('unit_banner_message',tempBannerInput.trim());notify(`${CURRENT_USER} עדכנה את הודעת הבית`,'today');} setIsEditingBanner(false); };
+  const saveBanner = () => { if(tempBannerInput.trim()){setBannerMessage(tempBannerInput.trim());notify(`${CURRENT_USER} עדכנה את הודעת הבית`,'today');} setIsEditingBanner(false); };
 
   const openForm = (type:'task'|'leave'|'event'|'person', id?:string) => { setFormType(type); setEditingId(id||null); setQuickAdd(false); };
   const closeDetails = () => {setSelectedTask(null);setSelectedLeave(null);setSelectedEvent(null);setSelectedPerson(null);setComment('');};
@@ -157,7 +217,7 @@ export default function App() {
   };
 
   return <div className="flex justify-center bg-[#E9E7E3] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
-    <div className="w-full max-w-[440px] bg-[#F8F6F2] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40">
+    <div className="w-full max-w-[440px] bg-[#F8F6F2] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40"><button onClick={()=>signOut(auth)} className="absolute top-2 left-2 z-20 text-[9px] text-slate-400 bg-white/80 border px-2 py-1 rounded-lg">יציאה</button>
       <div className="flex-1 overflow-y-auto px-4 pt-5 pb-6">
         {activeTab==='today' && <div className="space-y-4">
           <Header title="היום ביחידה" subtitle={new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} onBell={()=>setNotificationsOpen(true)} unread={unread}/>
@@ -272,7 +332,7 @@ export default function App() {
         <Action icon={<UserRound/>} title="הוספת אדם" onClick={()=>openForm('person')}/>
       </Modal>}
 
-      {formType&&<Editor type={formType} editingId={editingId} people={people} tasks={tasks} leaves={leaves} events={events}
+      {formType&&<Editor type={formType} editingId={editingId} people={people} tasks={tasks} leaves={leaves} events={events} avatarLibrary={avatarLibrary} setAvatarLibrary={setAvatarLibrary}
         onClose={()=>{setFormType(null);setEditingId(null)}}
         onPerson={(p,isEdit)=>{setPeople(xs=>isEdit?xs.map(x=>x.id===p.id?p:x):[...xs,p]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} את ${p.name}`,'people',p.id)}}
         onTask={(t,isEdit)=>{setTasks(xs=>isEdit?xs.map(x=>x.id===t.id?t:x):[t,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} משימה: ${t.title}`,'tasks',t.id);setSelectedTask(null)}}
@@ -414,10 +474,9 @@ function Detail({title,onClose,onEdit,onDelete,meta,comments,audit,comment,setCo
   return <div className="fixed inset-0 z-50 bg-[#F8F6F2] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl"><Top title={title} onClose={onClose}/><div className="space-y-3 mt-4"><div className="bg-white p-4 rounded-3xl border space-y-2">{children}<div className="text-[10px] text-slate-400 pt-2">{meta}</div></div><div className="flex gap-2"><button onClick={onEdit} className="flex-1 bg-[#7047D7] text-white p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Pencil className="w-4 h-4"/>עריכה</button><button onClick={onDelete} className="px-4 bg-[#FFE8E8] text-[#C84242] rounded-2xl"><Trash2 className="w-4 h-4"/></button></div><Section title="צ׳אט"><div className="space-y-2">{comments.map(c=><div key={c.id} className="bg-slate-50 p-3 rounded-2xl"><div className="text-xs font-extrabold">{c.author}</div><div className="text-sm mt-1">{c.text}</div><div className="text-[9px] text-slate-400 mt-1">{c.at}</div></div>)}<div className="flex gap-2"><input value={comment} onChange={e=>setComment(e.target.value)} placeholder="כתיבת תגובה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={onComment} className="bg-[#7047D7] text-white px-4 rounded-2xl"><MessageCircle className="w-4 h-4"/></button></div></div></Section><Section title="היסטוריית פעילות"><div className="space-y-2">{audit.map(a=><div key={a.id} className="text-xs border-r-2 border-purple-200 pr-3"><b>{a.actor}</b> {a.text}<div className="text-[9px] text-slate-400">{a.at}</div></div>)}</div></Section></div></div>
 }
 
-function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTask,onLeave,onEvent}:{type:'task'|'leave'|'event'|'person';editingId:string|null;people:Person[];tasks:Task[];leaves:Leave[];events:ScheduleEvent[];onClose:()=>void;onPerson:(p:Person,e:boolean)=>void;onTask:(t:Task,e:boolean)=>void;onLeave:(l:Leave,e:boolean)=>void;onEvent:(ev:ScheduleEvent,e:boolean)=>void}){
+function Editor({type,editingId,people,tasks,leaves,events,avatarLibrary,setAvatarLibrary,onClose,onPerson,onTask,onLeave,onEvent}:{type:'task'|'leave'|'event'|'person';editingId:string|null;people:Person[];tasks:Task[];leaves:Leave[];events:ScheduleEvent[];avatarLibrary:AvatarLibraryItem[];setAvatarLibrary:React.Dispatch<React.SetStateAction<AvatarLibraryItem[]>>;onClose:()=>void;onPerson:(p:Person,e:boolean)=>void;onTask:(t:Task,e:boolean)=>void;onLeave:(l:Leave,e:boolean)=>void;onEvent:(ev:ScheduleEvent,e:boolean)=>void}){
   const old:any = type==='task'?tasks.find(x=>x.id===editingId):type==='leave'?leaves.find(x=>x.id===editingId):type==='event'?events.find(x=>x.id===editingId):people.find(x=>x.id===editingId);
   const [f,setF]=useState<any>(old||{});
-  const [avatarLibrary,setAvatarLibrary] = useState<AvatarLibraryItem[]>(()=>loadAvatarLibrary());
   const set=(k:string,v:any)=>setF((x:any)=>({...x,[k]:v}));
   const uploadAvatar=(file?:File)=>{
     if(!file) return;
@@ -433,8 +492,7 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
         const src=canvas.toDataURL('image/jpeg',0.82);
         const item={id:uid(),src,createdAt:nowText()};
         const next=[item,...avatarLibrary];
-        try { saveAvatarLibrary(next); setAvatarLibrary(next); set('avatarUrl',src); }
-        catch { alert('מאגר התמונות המקומי מלא. אפשר למחוק תמונה ישנה או להמתין לחיבור Firebase.'); }
+        setAvatarLibrary(next); set('avatarUrl',src);
       };
       image.src=String(reader.result);
     };
@@ -442,7 +500,7 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
   };
   const deleteAvatar=(id:string)=>{
     const item=avatarLibrary.find(a=>a.id===id); if(!item||!confirm('למחוק את התמונה מהמאגר?'))return;
-    const next=avatarLibrary.filter(a=>a.id!==id); saveAvatarLibrary(next); setAvatarLibrary(next);
+    const next=avatarLibrary.filter(a=>a.id!==id); setAvatarLibrary(next);
     if(f.avatarUrl===item.src)set('avatarUrl',DEFAULT_AVATAR);
   };
   const input="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm";
@@ -469,7 +527,7 @@ function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTa
   return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'חופש':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
     {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><div><div className="text-xs font-extrabold mb-2">תמונה / אווטאר</div>
       <label className="w-full border-2 border-dashed border-[#CDBCF5] bg-[#F6F0FF] text-[#7047D7] rounded-2xl p-4 flex items-center justify-center gap-2 font-extrabold text-sm cursor-pointer active:scale-[.99]"><Plus className="w-4 h-4"/>העלאת תמונה למאגר<input type="file" accept="image/*" className="hidden" onChange={e=>{uploadAvatar(e.target.files?.[0]);e.currentTarget.value=''}}/></label>
-      <div className="text-[10px] text-slate-400 mt-1 mb-2">התמונה נחתכת אוטומטית לריבוע ונשמרת במאגר במכשיר הזה.</div>
+      <div className="text-[10px] text-slate-400 mt-1 mb-2">התמונה נחתכת אוטומטית לריבוע ונשמרת במאגר המשותף.</div>
       {avatarLibrary.length>0?<div className="grid grid-cols-4 gap-2 max-h-56 overflow-y-auto bg-[#F8F6F2] p-2 rounded-2xl border border-slate-100">{avatarLibrary.map(a=><div key={a.id} className="relative"><button type="button" onClick={()=>set('avatarUrl',a.src)} className={`w-full aspect-square rounded-2xl overflow-hidden border-2 transition ${f.avatarUrl===a.src?'border-[#7047D7] ring-2 ring-[#7047D7]/20':'border-transparent'}`}><img src={a.src} className="w-full h-full object-cover"/>{f.avatarUrl===a.src&&<span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#7047D7] text-white flex items-center justify-center"><Check className="w-3 h-3"/></span>}</button><button type="button" onClick={()=>deleteAvatar(a.id)} className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white border shadow text-rose-500 flex items-center justify-center"><X className="w-3 h-3"/></button></div>)}</div>:<div className="bg-slate-50 rounded-2xl p-4 text-center text-xs text-slate-400">המאגר עדיין ריק — העלי תמונה ראשונה 💜</div>}
       </div><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
     {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
