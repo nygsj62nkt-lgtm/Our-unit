@@ -13,6 +13,8 @@ import {
 type Tab = 'today' | 'tasks' | 'leaves' | 'schedule' | 'people';
 type Category = 'soldier' | 'commander' | 'reserve';
 type TaskStatus = 'open' | 'in_progress' | 'completed' | 'overdue';
+type TaskKind = 'regular' | 'ongoing';
+type RepeatFrequency = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
 
 interface Comment { id:string; author:string; text:string; at:string; }
 interface Audit { id:string; actor:string; text:string; at:string; }
@@ -22,19 +24,19 @@ interface Person {
 }
 interface Task {
   id:string; title:string; dueDate:string; dueTime?:string; responsibleId:string;
-  responsibleName:string; avatarUrl:string; imageUrl?:string; status:TaskStatus;
+  responsibleName:string; avatarUrl:string; imageUrl?:string; status:TaskStatus; kind?:TaskKind;
   description?:string; createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
 }
 interface Leave {
-  id:string; personId:string; name:string; type:'חופש'|'גימלים'|'קורס'|'אפטר'|'תמ״ל';
+  id:string; personId:string; name:string; type:'חופש'|'גימלים'|'קורס'|'אפטר'|'תמ״ל'|'לימודים'|'הפניה';
   startDate:string; endDate:string; avatarUrl:string; category:Category; note?:string;
   createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
 }
 interface ScheduleEvent {
   id:string; title:string; date:string; time:string; endTime:string; description?:string;
-  personIds:string[]; createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
+  personIds:string[]; repeatFrequency?:RepeatFrequency; repeatUntil?:string; createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
 }
 interface Notification { id:string; text:string; at:string; read:boolean; target:Tab; entityId?:string; }
@@ -75,6 +77,22 @@ const addOneHour = (time:string) => {
 };
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+const isoFromDate = (d:Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const dateFromISO = (iso:string) => new Date(iso+'T12:00:00');
+const addDaysISO = (iso:string,days:number) => { const d=dateFromISO(iso); d.setDate(d.getDate()+days); return isoFromDate(d); };
+const startOfWeekISO = (iso:string) => { const d=dateFromISO(iso); d.setDate(d.getDate()-d.getDay()); return isoFromDate(d); };
+const eventOccursOn = (e:ScheduleEvent,date:string) => {
+  if(date<e.date) return false;
+  if(e.repeatUntil && date>e.repeatUntil) return false;
+  const freq=e.repeatFrequency||'none';
+  if(freq==='none') return e.date===date;
+  const start=dateFromISO(e.date), target=dateFromISO(date);
+  const days=Math.round((target.getTime()-start.getTime())/86400000);
+  if(freq==='daily') return days>=0;
+  if(freq==='weekly') return days>=0 && days%7===0;
+  if(freq==='biweekly') return days>=0 && days%14===0;
+  return target.getDate()===start.getDate();
+};
 
 const DEFAULT_AVATAR = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="40" fill="%23EEE7FF"/><circle cx="100" cy="78" r="34" fill="%237047D7" opacity=".72"/><path d="M42 178c5-39 28-59 58-59s53 20 58 59" fill="%237047D7" opacity=".72"/></svg>`)}`;
 type AvatarLibraryItem = { id:string; src:string; createdAt:string };
@@ -95,7 +113,7 @@ function AppCore() {
   const [pushStatus,setPushStatus] = useState<'idle'|'working'|'enabled'|'unsupported'|'denied'>('idle');
   const lastRemoteJson = useRef('');
   const [activeTab,setActiveTab] = useState<Tab>('today');
-  const [taskFilter,setTaskFilter] = useState<'all'|'open'|'overdue'|'done'>('all');
+  const [taskFilter,setTaskFilter] = useState<'all'|'open'|'ongoing'|'overdue'|'done'>('all');
   const [leaveTab,setLeaveTab] = useState<Category>('soldier');
   const [people,setPeople] = useState<Person[]>(initialPeople);
   const [selectedPerson,setSelectedPerson] = useState<Person|null>(null);
@@ -108,6 +126,7 @@ function AppCore() {
   const [notificationsOpen,setNotificationsOpen] = useState(false);
   const [comment,setComment] = useState('');
   const [selectedDay,setSelectedDay] = useState(todayISO());
+  const [scheduleView,setScheduleView] = useState<'day'|'week'>('day');
   const [leaveSelectedDay,setLeaveSelectedDay] = useState(todayISO());
   const [leaveMonth,setLeaveMonth] = useState(() => {
     const d = new Date();
@@ -214,16 +233,16 @@ function AppCore() {
   const currentLeaves = leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO());
   const soldierOut = currentLeaves.filter(l=>l.category==='soldier');
   const commanderOut = currentLeaves.filter(l=>l.category==='commander');
-  const overdueTasks = tasks.filter(t=>t.status==='overdue' || (t.status!=='completed' && t.dueDate < todayISO()));
+  const overdueTasks = tasks.filter(t=>t.kind!=='ongoing' && (t.status==='overdue' || (t.status!=='completed' && t.dueDate < todayISO())));
   const openTasks = tasks.filter(t=>t.status!=='completed');
-  const filteredTasks = tasks.filter(t => taskFilter==='all' ? true : taskFilter==='done' ? t.status==='completed' : taskFilter==='overdue' ? overdueTasks.some(x=>x.id===t.id) : t.status==='open' || t.status==='in_progress');
+  const filteredTasks = tasks.filter(t => taskFilter==='all' ? true : taskFilter==='done' ? t.status==='completed' : taskFilter==='ongoing' ? t.kind==='ongoing' : taskFilter==='overdue' ? overdueTasks.some(x=>x.id===t.id) : (t.status==='open' || t.status==='in_progress') && t.kind!=='ongoing');
   const unread = notifications.filter(n=>!n.read).length;
-  const todayEvents = events.filter(e=>e.date===todayISO()).sort((a,b)=>a.time.localeCompare(b.time));
+  const todayEvents = events.filter(e=>eventOccursOn(e,todayISO())).sort((a,b)=>a.time.localeCompare(b.time));
   const selectedDayLeaves = leaves.filter(l =>
     l.category===leaveTab && l.startDate<=leaveSelectedDay && l.endDate>=leaveSelectedDay
   );
 
-  const goTasks = (filter:'all'|'open'|'overdue'|'done') => { setTaskFilter(filter); setActiveTab('tasks'); };
+  const goTasks = (filter:'all'|'open'|'ongoing'|'overdue'|'done') => { setTaskFilter(filter); setActiveTab('tasks'); };
   const openBanner = () => { setTempBannerInput(bannerMessage); setIsEditingBanner(true); };
   const saveBanner = () => { if(tempBannerInput.trim()){setBannerMessage(tempBannerInput.trim());notify(`${CURRENT_USER} עדכנה את הודעת הבית`,'today');} setIsEditingBanner(false); };
 
@@ -234,7 +253,7 @@ function AppCore() {
     const text=comment.trim(); if(!text)return;
     const c={id:uid(),author:CURRENT_USER,text,at:nowText()};
     if(kind==='task'){setTasks(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedTask(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה במשימה`,'tasks',id);}
-    if(kind==='leave'){setLeaves(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedLeave(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה בחופש`,'leaves',id);}
+    if(kind==='leave'){setLeaves(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedLeave(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה בדיווח נוכחות`,'leaves',id);}
     if(kind==='event'){setEvents(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedEvent(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה באירוע לו״ז`,'schedule',id);}
     setComment('');
   };
@@ -242,7 +261,7 @@ function AppCore() {
   const deleteEntity=(kind:'task'|'leave'|'event',id:string)=>{
     if(!confirm('למחוק את הפריט?'))return;
     if(kind==='task'){setTasks(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה משימה`,'tasks');}
-    if(kind==='leave'){setLeaves(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה חופש`,'leaves');}
+    if(kind==='leave'){setLeaves(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה דיווח נוכחות`,'leaves');}
     if(kind==='event'){setEvents(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה אירוע לו״ז`,'schedule');}
     closeDetails();
   };
@@ -278,31 +297,31 @@ function AppCore() {
             <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-md p-1.5 rounded-full text-white"><Pencil className="w-3 h-3"/></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Stat title="חיילים בחופש" value={soldierOut.length} icon={<Users className="w-4 h-4"/>} onClick={()=>{setLeaveTab('soldier');setActiveTab('leaves')}}/>
-            <Stat title="מפקדים בחופש" value={commanderOut.length} icon={<Crown className="w-4 h-4"/>} onClick={()=>{setLeaveTab('commander');setActiveTab('leaves')}}/>
+            <Stat title="חיילים לא ביחידה" value={soldierOut.length} icon={<Users className="w-4 h-4"/>} onClick={()=>{setLeaveTab('soldier');setActiveTab('leaves')}}/>
+            <Stat title="מפקדים לא ביחידה" value={commanderOut.length} icon={<Crown className="w-4 h-4"/>} onClick={()=>{setLeaveTab('commander');setActiveTab('leaves')}}/>
             <Stat title="משימות פתוחות" value={openTasks.length} icon={<CheckSquare className="w-4 h-4"/>} onClick={()=>goTasks('open')}/>
             <Stat title="משימות באיחור" value={overdueTasks.length} icon={<AlertCircle className="w-4 h-4"/>} danger onClick={()=>goTasks('overdue')}/>
           </div>
-          <Section title="היום בלו״ז" action="לכל השבוע" onAction={()=>setActiveTab('schedule')}>
+          <Section title="היום בלו״ז" action="לכל השבוע" onAction={()=>{setScheduleView('week');setSelectedDay(todayISO());setActiveTab('schedule')}}>
             <div className="space-y-3">{todayEvents.length?todayEvents.map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className="w-full flex items-center gap-3 text-right"><span className="text-xs font-bold text-slate-400 w-11">{e.time}</span><span className="w-2 h-2 rounded-full bg-[#7047D7]"/><span className="text-xs font-bold">{e.title}</span></button>):<Empty text="אין אירועים היום"/>}</div>
           </Section>
-          <Section title="בחופשה היום 🌴" action="לכל החופשות" onAction={()=>setActiveTab('leaves')}>
-            <div className="flex gap-3 overflow-x-auto">{currentLeaves.length?currentLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="min-w-[92px] bg-slate-50 p-2.5 rounded-2xl"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover mx-auto"/><div className="text-xs font-bold mt-1">{l.name}</div><div className="text-[10px] text-slate-400">{l.type}</div></button>):<Empty text="אף אחד לא בחופש היום"/>}</div>
+          <Section title="נוכחות היום" action="לכל הנוכחות" onAction={()=>setActiveTab('leaves')}>
+            <div className="flex gap-3 overflow-x-auto">{currentLeaves.length?currentLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="min-w-[92px] bg-slate-50 p-2.5 rounded-2xl"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover mx-auto"/><div className="text-xs font-bold mt-1">{l.name}</div><div className="text-[10px] text-slate-400">{l.type}</div></button>):<Empty text="אין דיווחי היעדרות היום"/>}</div>
           </Section>
         </div>}
 
         {activeTab==='tasks' && <div className="space-y-4">
           <PageTitle title="משימות" subtitle="מעקב וניהול משימות היחידה" action={()=>openForm('task')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-            {([['all','הכל'],['open','פתוחות'],['overdue','באיחור'],['done','הושלמו']] as const).map(([k,l])=><button key={k} onClick={()=>setTaskFilter(k)} className={`flex-1 py-2 rounded-xl ${taskFilter===k?'bg-[#7047D7] text-white':'text-slate-500'}`}>{l}</button>)}
+            {([['all','הכל'],['open','פתוחות'],['ongoing','שוטפות'],['overdue','באיחור'],['done','הושלמו']] as const).map(([k,l])=><button key={k} onClick={()=>setTaskFilter(k)} className={`flex-1 py-2 rounded-xl ${taskFilter===k?'bg-[#7047D7] text-white':'text-slate-500'}`}>{l}</button>)}
           </div>
           <div className="space-y-2.5">{filteredTasks.length?filteredTasks.map(t=><button key={t.id} onClick={()=>setSelectedTask(t)} className="w-full bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between text-right">
-            <div className="flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${t.status==='completed'?'bg-[#DDF5E3] text-[#27824A]':overdueTasks.some(x=>x.id===t.id)?'bg-[#FFE4E4] text-[#D54A4A]':'bg-[#FFF1CE] text-[#D99A20]'}`}>{t.status==='completed'?<Check className="w-4 h-4"/>:overdueTasks.some(x=>x.id===t.id)?<AlertCircle className="w-4 h-4"/>:<Clock3 className="w-4 h-4"/>}</span><div><div className="font-extrabold text-sm">{t.title}</div><div className="text-[11px] text-slate-400 mt-1">{fmtDate(t.dueDate)} • אחראי: {t.responsibleName||'לא שויך'}</div><div className="text-[10px] text-slate-400 mt-1">עודכן ע״י {t.updatedBy}</div></div></div><ChevronLeft className="w-4 h-4 text-slate-300"/>
+            <div className="flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${t.status==='completed'?'bg-[#DDF5E3] text-[#27824A]':overdueTasks.some(x=>x.id===t.id)?'bg-[#FFE4E4] text-[#D54A4A]':'bg-[#FFF1CE] text-[#D99A20]'}`}>{t.status==='completed'?<Check className="w-4 h-4"/>:overdueTasks.some(x=>x.id===t.id)?<AlertCircle className="w-4 h-4"/>:<Clock3 className="w-4 h-4"/>}</span><div><div className="font-extrabold text-sm">{t.title}</div><div className="text-[11px] text-slate-400 mt-1">{t.kind==='ongoing'?'משימה שוטפת':fmtDate(t.dueDate)} • אחראי: {t.responsibleName||'לא שויך'}</div><div className="text-[10px] text-slate-400 mt-1">עודכן ע״י {t.updatedBy}</div></div></div><ChevronLeft className="w-4 h-4 text-slate-300"/>
           </button>):<Empty text="אין משימות במסנן הזה"/>}</div>
         </div>}
 
         {activeTab==='leaves' && <div className="space-y-4">
-          <PageTitle title="ניהול חופשות" subtitle="חיילים ומפקדים מחוץ לבסיס" action={()=>openForm('leave')}/>
+          <PageTitle title="נוכחות" subtitle="מעקב נוכחות, היעדרויות ופעילויות" action={()=>openForm('leave')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
             <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#7047D7] text-white':'text-slate-500'}`}>חיילים</button>
             <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#7047D7] text-white':'text-slate-500'}`}>מפקדים</button>
@@ -323,15 +342,15 @@ function AppCore() {
             }}
           />
 
-          <Section title={`${fmtDate(leaveSelectedDay)} • ${leaveTab==='soldier'?'חיילים':leaveTab==='reserve'?'מילואים':'מפקדים'} בחופש`}>
+          <Section title={`${fmtDate(leaveSelectedDay)} • ${leaveTab==='soldier'?'חיילים':leaveTab==='reserve'?'מילואים':'מפקדים'} • נוכחות`}>
             <div className="space-y-2.5">
               {selectedDayLeaves.length ? selectedDayLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
                 <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div><div className="text-[10px] text-slate-400">נוסף ע״י {l.createdBy}</div></div></div><span className="text-[11px] font-extrabold bg-[#E0F5E5] text-[#277B47] px-3 py-1 rounded-xl">{l.type}</span>
-              </button>) : <Empty text="אין חופשות ביום הזה"/>}
+              </button>) : <Empty text="אין דיווחי נוכחות ביום הזה"/>}
             </div>
           </Section>
 
-          <Section title="כל החופשות">
+          <Section title="כל דיווחי הנוכחות">
             <div className="space-y-2.5">{leaves.filter(l=>l.category===leaveTab).map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
               <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div></div></div><span className="text-[11px] font-extrabold bg-[#E0F5E5] text-[#277B47] px-3 py-1 rounded-xl">{l.type}</span>
             </button>)}</div>
@@ -340,13 +359,11 @@ function AppCore() {
 
         {activeTab==='schedule' && <div className="space-y-4">
           <PageTitle title="לו״ז" subtitle="תכנון פעילות היחידה" action={()=>openForm('event')}/>
-          <input type="date" value={selectedDay} onChange={e=>setSelectedDay(e.target.value)} className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"/>
-          <div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-3">
-            {events.filter(e=>e.date===selectedDay).sort((a,b)=>a.time.localeCompare(b.time)).map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className={`w-full p-3 rounded-xl text-right border ${Number(e.time.slice(0,2))<10?'bg-[#E9E0FF] border-[#D8C8FF]':Number(e.time.slice(0,2))<13?'bg-[#DDF4E2] border-[#C7EBCF]':Number(e.time.slice(0,2))<15?'bg-[#FFE2E2] border-[#F6CCCC]':'bg-[#DDEEFF] border-[#C9E1F8]'}`}>
-              <div className="flex justify-between"><span className="font-extrabold text-xs">{e.title}</span><span className="text-[10px]">{e.time}–{e.endTime}</span></div><div className="text-[10px] text-slate-500 mt-1">נוסף ע״י {e.createdBy}</div>
-            </button>)}
-            {!events.some(e=>e.date===selectedDay)&&<Empty text="אין אירועים בתאריך הזה"/>}
-          </div>
+          <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold"><button onClick={()=>setScheduleView('day')} className={`flex-1 py-2 rounded-xl ${scheduleView==='day'?'bg-[#7047D7] text-white':'text-slate-500'}`}>יומי</button><button onClick={()=>setScheduleView('week')} className={`flex-1 py-2 rounded-xl ${scheduleView==='week'?'bg-[#7047D7] text-white':'text-slate-500'}`}>שבועי</button></div>
+          {scheduleView==='day'?<><input type="date" value={selectedDay} onChange={e=>setSelectedDay(e.target.value)} className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"/><div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-3">
+            {events.filter(e=>eventOccursOn(e,selectedDay)).sort((a,b)=>a.time.localeCompare(b.time)).map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className={`w-full p-3 rounded-xl text-right border ${Number(e.time.slice(0,2))<10?'bg-[#E9E0FF] border-[#D8C8FF]':Number(e.time.slice(0,2))<13?'bg-[#DDF4E2] border-[#C7EBCF]':Number(e.time.slice(0,2))<15?'bg-[#FFE2E2] border-[#F6CCCC]':'bg-[#DDEEFF] border-[#C9E1F8]'}`}><div className="flex justify-between"><span className="font-extrabold text-xs">{e.title}{e.repeatFrequency&&e.repeatFrequency!=='none'?' ↻':''}</span><span className="text-[10px]">{e.time}–{e.endTime}</span></div><div className="text-[10px] text-slate-500 mt-1">נוסף ע״י {e.createdBy}</div></button>)}
+            {!events.some(e=>eventOccursOn(e,selectedDay))&&<Empty text="אין אירועים בתאריך הזה"/>}
+          </div></>:<div className="space-y-3">{Array.from({length:7},(_,i)=>addDaysISO(startOfWeekISO(selectedDay),i)).map(day=>{const dayEvents=events.filter(e=>eventOccursOn(e,day)).sort((a,b)=>a.time.localeCompare(b.time));return <div key={day} className="bg-white rounded-3xl p-4 border border-slate-100"><div className="flex items-center justify-between mb-3"><div className="font-black text-sm">{dateFromISO(day).toLocaleDateString('he-IL',{weekday:'long'})}</div><div className="text-xs text-slate-400">{fmtDate(day)}</div></div><div className="space-y-2">{dayEvents.length?dayEvents.map(e=><button key={`${e.id}-${day}`} onClick={()=>setSelectedEvent(e)} className="w-full bg-[#F7F3FF] border border-[#E7DCFF] p-3 rounded-2xl flex justify-between text-right"><span className="font-extrabold text-xs">{e.title}{e.repeatFrequency&&e.repeatFrequency!=='none'?' ↻':''}</span><span className="text-[10px] text-slate-500">{e.time}–{e.endTime}</span></button>):<div className="text-xs text-slate-300 py-1">אין אירועים</div>}</div></div>})}<div className="flex gap-2"><button onClick={()=>setSelectedDay(addDaysISO(selectedDay,-7))} className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold">שבוע קודם</button><button onClick={()=>setSelectedDay(todayISO())} className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold">השבוע</button><button onClick={()=>setSelectedDay(addDaysISO(selectedDay,7))} className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold">שבוע הבא</button></div></div>}
         </div>}
 
         {activeTab==='people' && <div className="space-y-4">
@@ -355,7 +372,7 @@ function AppCore() {
             <div className="space-y-2">{people.filter(p=>p.category===cat&&p.active).map(p=>{
               const out=currentLeaves.some(l=>l.personId===p.id);
               return <button key={p.id} onClick={()=>setSelectedPerson(p)} className="w-full flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-right">
-                <div className="flex items-center gap-3"><img src={p.avatarUrl} className="w-11 h-11 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{p.name}</div><div className="text-[11px] text-slate-400">{p.category==='commander'?'מפקד/ת':p.category==='reserve'?'מילואים':'חייל/ת'}</div></div></div><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${out?'bg-amber-50 text-amber-700':'bg-[#E0F5E5] text-[#277B47]'}`}>{out?'בחופש':'ביחידה'}</span>
+                <div className="flex items-center gap-3"><img src={p.avatarUrl} className="w-11 h-11 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{p.name}</div><div className="text-[11px] text-slate-400">{p.category==='commander'?'מפקד/ת':p.category==='reserve'?'מילואים':'חייל/ת'}</div></div></div><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${out?'bg-amber-50 text-amber-700':'bg-[#E0F5E5] text-[#277B47]'}`}>{out?'לא ביחידה':'ביחידה'}</span>
               </button>
             })}</div>
           </Section>)}
@@ -367,7 +384,7 @@ function AppCore() {
           <Nav active={activeTab==='today'} icon={<Home/>} label="היום" onClick={()=>setActiveTab('today')}/>
           <Nav active={activeTab==='tasks'} icon={<CheckSquare/>} label="משימות" onClick={()=>setActiveTab('tasks')}/>
           <button onClick={()=>setQuickAdd(true)} className="w-14 h-14 rounded-full bg-[#7047D7] shadow-lg text-white flex items-center justify-center -mt-5"><Plus className="w-6 h-6"/></button>
-          <Nav active={activeTab==='leaves'} icon={<Palmtree/>} label="חופשות" onClick={()=>setActiveTab('leaves')}/>
+          <Nav active={activeTab==='leaves'} icon={<Palmtree/>} label="נוכחות" onClick={()=>setActiveTab('leaves')}/>
           <Nav active={activeTab==='schedule'} icon={<CalendarDays/>} label="לו״ז" onClick={()=>setActiveTab('schedule')}/>
           <Nav active={activeTab==='people'} icon={<Users/>} label="אנשים" onClick={()=>setActiveTab('people')}/>
         </div>
@@ -375,7 +392,7 @@ function AppCore() {
 
       {quickAdd&&<Modal title="הוספה חדשה" onClose={()=>setQuickAdd(false)}>
         <Action icon={<CheckSquare/>} title="הוספת משימה" onClick={()=>openForm('task')}/>
-        <Action icon={<Palmtree/>} title="הוספת חופשה" onClick={()=>openForm('leave')}/>
+        <Action icon={<Palmtree/>} title="הוספת נוכחות" onClick={()=>openForm('leave')}/>
         <Action icon={<Calendar/>} title="הוספת אירוע בלו״ז" onClick={()=>openForm('event')}/>
         <Action icon={<UserRound/>} title="הוספת אדם" onClick={()=>openForm('person')}/>
       </Modal>}
@@ -384,31 +401,31 @@ function AppCore() {
         onClose={()=>{setFormType(null);setEditingId(null)}}
         onPerson={(p,isEdit)=>{setPeople(xs=>isEdit?xs.map(x=>x.id===p.id?p:x):[...xs,p]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} את ${p.name}`,'people',p.id)}}
         onTask={(t,isEdit)=>{setTasks(xs=>isEdit?xs.map(x=>x.id===t.id?t:x):[t,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} משימה: ${t.title}`,'tasks',t.id);setSelectedTask(null)}}
-        onLeave={(l,isEdit)=>{setLeaves(xs=>isEdit?xs.map(x=>x.id===l.id?l:x):[l,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} חופש ל${l.name}`,'leaves',l.id);setSelectedLeave(null)}}
+        onLeave={(l,isEdit)=>{setLeaves(xs=>isEdit?xs.map(x=>x.id===l.id?l:x):[l,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} נוכחות ל${l.name}`,'leaves',l.id);setSelectedLeave(null)}}
         onEvent={(e,isEdit)=>{setEvents(xs=>isEdit?xs.map(x=>x.id===e.id?e:x):[e,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} אירוע: ${e.title}`,'schedule',e.id);setSelectedEvent(null)}}
       />}
 
       {selectedTask&&<Detail title="פרטי משימה" onClose={()=>setSelectedTask(null)} onEdit={()=>openForm('task',selectedTask.id)} onDelete={()=>deleteEntity('task',selectedTask.id)}
         meta={`נוצר ע״י ${selectedTask.createdBy} • ${selectedTask.createdAt}`} comments={selectedTask.comments} audit={selectedTask.audit} comment={comment} setComment={setComment} onComment={()=>addComment('task',selectedTask.id)}>
-        <h2 className="text-xl font-black">{selectedTask.title}</h2><p className="text-sm text-slate-600">{selectedTask.description}</p><Info label="אחראי" value={selectedTask.responsibleName}/><Info label="תאריך יעד" value={fmtDate(selectedTask.dueDate)}/><Info label="סטטוס" value={selectedTask.status}/>
+        <h2 className="text-xl font-black">{selectedTask.title}</h2><p className="text-sm text-slate-600">{selectedTask.description}</p><Info label="אחראי" value={selectedTask.responsibleName}/><Info label="סוג" value={selectedTask.kind==='ongoing'?'משימה שוטפת':'משימה רגילה'}/>{selectedTask.kind!=='ongoing'&&<Info label="תאריך יעד" value={fmtDate(selectedTask.dueDate)}/>}<Info label="סטטוס" value={selectedTask.status}/>
         {selectedTask.status!=='completed'&&<button onClick={()=>{const updated={...selectedTask,status:'completed' as TaskStatus,updatedBy:CURRENT_USER,updatedAt:nowText(),audit:[...selectedTask.audit,{id:uid(),actor:CURRENT_USER,text:'סימנה את המשימה כהושלמה',at:nowText()}]};setTasks(xs=>xs.map(x=>x.id===updated.id?updated:x));setSelectedTask(updated);notify(`${CURRENT_USER} השלימה את "${updated.title}"`,'tasks',updated.id)}} className="w-full bg-emerald-600 text-white p-3 rounded-2xl font-bold">סימון כהושלמה</button>}
       </Detail>}
 
-      {selectedLeave&&<Detail title="פרטי חופש" onClose={()=>setSelectedLeave(null)} onEdit={()=>openForm('leave',selectedLeave.id)} onDelete={()=>deleteEntity('leave',selectedLeave.id)}
+      {selectedLeave&&<Detail title="פרטי נוכחות" onClose={()=>setSelectedLeave(null)} onEdit={()=>openForm('leave',selectedLeave.id)} onDelete={()=>deleteEntity('leave',selectedLeave.id)}
         meta={`נוסף ע״י ${selectedLeave.createdBy} • ${selectedLeave.createdAt}`} comments={selectedLeave.comments} audit={selectedLeave.audit} comment={comment} setComment={setComment} onComment={()=>addComment('leave',selectedLeave.id)}>
         <h2 className="text-xl font-black">{selectedLeave.name}</h2><Info label="סוג" value={selectedLeave.type}/><Info label="תאריכים" value={`${fmtDate(selectedLeave.startDate)} – ${fmtDate(selectedLeave.endDate)}`}/><p className="text-sm">{selectedLeave.note}</p>
       </Detail>}
 
       {selectedEvent&&<Detail title="אירוע בלו״ז" onClose={()=>setSelectedEvent(null)} onEdit={()=>openForm('event',selectedEvent.id)} onDelete={()=>deleteEntity('event',selectedEvent.id)}
         meta={`נוסף ע״י ${selectedEvent.createdBy} • ${selectedEvent.createdAt}`} comments={selectedEvent.comments} audit={selectedEvent.audit} comment={comment} setComment={setComment} onComment={()=>addComment('event',selectedEvent.id)}>
-        <h2 className="text-xl font-black">{selectedEvent.title}</h2><Info label="תאריך" value={fmtDate(selectedEvent.date)}/><Info label="שעה" value={`${selectedEvent.time} – ${selectedEvent.endTime}`}/><p className="text-sm">{selectedEvent.description}</p>
+        <h2 className="text-xl font-black">{selectedEvent.title}</h2><Info label="תאריך התחלה" value={fmtDate(selectedEvent.date)}/><Info label="שעה" value={`${selectedEvent.time} – ${selectedEvent.endTime}`}/>{selectedEvent.repeatFrequency&&selectedEvent.repeatFrequency!=='none'&&<Info label="חזרה" value={({daily:'כל יום',weekly:'כל שבוע',biweekly:'כל שבועיים',monthly:'כל חודש'} as any)[selectedEvent.repeatFrequency]+(selectedEvent.repeatUntil?` • עד ${fmtDate(selectedEvent.repeatUntil)}`:' • ללא תאריך סיום')}/>}<p className="text-sm">{selectedEvent.description}</p>
       </Detail>}
 
       {selectedPerson&&<div className="fixed inset-0 z-50 bg-[#F8F6F2] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
         <Top title="פרופיל אישי" onClose={()=>setSelectedPerson(null)}/>
         <div className="text-center py-4"><img src={selectedPerson.avatarUrl} className="w-24 h-24 rounded-full object-cover mx-auto"/><h2 className="text-xl font-black mt-2">{selectedPerson.name}</h2><p className="text-sm text-slate-500">{selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}</p></div>
         <Info label="סוג" value={selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}/>
-        <div className="grid grid-cols-2 gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="bg-[#7047D7] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="bg-white border p-3 rounded-2xl font-bold">הוספת חופש</button><button onClick={()=>{if(confirm(`למחוק את ${selectedPerson.name} מכוח האדם? המשימות והחופשות הקיימות יישמרו.`)){setPeople(xs=>xs.map(x=>x.id===selectedPerson.id?{...x,active:false}:x));notify(`${CURRENT_USER} הסירה את ${selectedPerson.name} מכוח האדם`,'people',selectedPerson.id);setSelectedPerson(null)}}} className="col-span-2 bg-[#FFE8E8] text-[#C84242] p-3 rounded-2xl font-bold">מחיקה מכוח האדם</button></div>
+        <div className="grid grid-cols-2 gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="bg-[#7047D7] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="bg-white border p-3 rounded-2xl font-bold">הוספת נוכחות</button><button onClick={()=>{if(confirm(`למחוק את ${selectedPerson.name} מכוח האדם? המשימות ודיווחי הנוכחות הקיימים יישמרו.`)){setPeople(xs=>xs.map(x=>x.id===selectedPerson.id?{...x,active:false}:x));notify(`${CURRENT_USER} הסירה את ${selectedPerson.name} מכוח האדם`,'people',selectedPerson.id);setSelectedPerson(null)}}} className="col-span-2 bg-[#FFE8E8] text-[#C84242] p-3 rounded-2xl font-bold">מחיקה מכוח האדם</button></div>
         <Section title="תורנויות ושמירות">
           <div className="space-y-2">
             <button onClick={()=>{setDutyPersonId(selectedPerson.id);setDutyFormOpen(true)}} className="w-full bg-gradient-to-l from-[#FFF0D8] to-[#FFF8EB] text-[#A96C15] p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Plus className="w-4 h-4"/>הוספת תורנות / שמירה / שבת</button>
@@ -416,7 +433,7 @@ function AppCore() {
             {!duties.some(d=>d.personId===selectedPerson.id&&d.active)&&<Empty text="אין תורנויות או שמירות"/>}
           </div>
         </Section><div className="h-3"/><Section title="משימות"><div className="space-y-2">{tasks.filter(t=>t.responsibleId===selectedPerson.id).map(t=><button key={t.id} onClick={()=>{setSelectedPerson(null);setSelectedTask(t)}} className="w-full bg-slate-50 p-3 rounded-xl text-right text-sm font-bold">{t.title}</button>)}{!tasks.some(t=>t.responsibleId===selectedPerson.id)&&<Empty text="אין משימות"/>}</div></Section>
-        <div className="h-3"/><Section title="חופשות"><div className="space-y-2">{leaves.filter(l=>l.personId===selectedPerson.id).map(l=><div key={l.id} className="bg-slate-50 p-3 rounded-xl text-sm">{l.type} • {fmtDate(l.startDate)}–{fmtDate(l.endDate)}</div>)}{!leaves.some(l=>l.personId===selectedPerson.id)&&<Empty text="אין חופשות"/>}</div></Section>
+        <div className="h-3"/><Section title="נוכחות"><div className="space-y-2">{leaves.filter(l=>l.personId===selectedPerson.id).map(l=><div key={l.id} className="bg-slate-50 p-3 rounded-xl text-sm">{l.type} • {fmtDate(l.startDate)}–{fmtDate(l.endDate)}</div>)}{!leaves.some(l=>l.personId===selectedPerson.id)&&<Empty text="אין דיווחי נוכחות"/>}</div></Section>
       </div>}
 
       {dutyFormOpen&&<Modal title="הוספת תורנות / שמירה" onClose={()=>setDutyFormOpen(false)}>
@@ -560,27 +577,27 @@ function Editor({type,editingId,people,tasks,leaves,events,avatarLibrary,setAvat
     }
     if(type==='task'){
       if(!f.title?.trim())return alert('צריך להזין שם משימה'); const p=people.find(x=>x.id===f.responsibleId)||people[0];
-      const t:Task={id:old?.id||uid(),title:f.title,dueDate:f.dueDate||todayISO(),dueTime:f.dueTime||'',responsibleId:p?.id||'',responsibleName:p?.name||'',avatarUrl:p?.avatarUrl||'',imageUrl:f.imageUrl||'',status:f.status||'open',description:f.description||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את המשימה':'יצרה את המשימה',at}]};onTask(t,isEdit);
+      const t:Task={id:old?.id||uid(),title:f.title,dueDate:f.dueDate||todayISO(),dueTime:f.dueTime||'',responsibleId:p?.id||'',responsibleName:p?.name||'',avatarUrl:p?.avatarUrl||'',imageUrl:f.imageUrl||'',status:f.status||'open',kind:f.kind||'regular',description:f.description||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את המשימה':'יצרה את המשימה',at}]};onTask(t,isEdit);
     }
     if(type==='leave'){
       const p=people.find(x=>x.id===f.personId)||people[0]; if(!p)return alert('צריך להוסיף אדם קודם');
-      const l:Leave={id:old?.id||uid(),personId:p.id,name:p.name,type:f.type||'חופש',startDate:f.startDate||todayISO(),endDate:f.endDate||todayISO(),avatarUrl:p.avatarUrl,category:p.category,note:f.note||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את החופש':'הוסיפה חופש',at}]};onLeave(l,isEdit);
+      const l:Leave={id:old?.id||uid(),personId:p.id,name:p.name,type:f.type||'חופש',startDate:f.startDate||todayISO(),endDate:f.endDate||todayISO(),avatarUrl:p.avatarUrl,category:p.category,note:f.note||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את הנוכחות':'הוסיפה דיווח נוכחות',at}]};onLeave(l,isEdit);
     }
     if(type==='event'){
       if(!f.title?.trim())return alert('צריך להזין כותרת');
-      const startTime=f.time||'08:00'; const rawEnd=f.endTime||''; const safeEnd=!rawEnd || rawEnd<=startTime ? addOneHour(startTime) : rawEnd; const e:ScheduleEvent={id:old?.id||uid(),title:f.title,date:f.date||todayISO(),time:startTime,endTime:safeEnd,description:f.description||'',personIds:f.personIds||[],createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את האירוע':'הוסיפה אירוע',at}]};onEvent(e,isEdit);
+      const startTime=f.time||'08:00'; const rawEnd=f.endTime||''; const safeEnd=!rawEnd || rawEnd<=startTime ? addOneHour(startTime) : rawEnd; const e:ScheduleEvent={id:old?.id||uid(),title:f.title,date:f.date||todayISO(),time:startTime,endTime:safeEnd,description:f.description||'',personIds:f.personIds||[],repeatFrequency:f.repeatFrequency||'none',repeatUntil:f.repeatFrequency&&f.repeatFrequency!=='none'?(f.repeatUntil||''):'' ,createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את האירוע':'הוסיפה אירוע',at}]};onEvent(e,isEdit);
     }
     onClose();
   };
-  return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'חופש':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
+  return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'נוכחות':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
     {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><div><div className="text-xs font-extrabold mb-2">תמונה / אווטאר</div>
       <label className="w-full border-2 border-dashed border-[#CDBCF5] bg-[#F6F0FF] text-[#7047D7] rounded-2xl p-4 flex items-center justify-center gap-2 font-extrabold text-sm cursor-pointer active:scale-[.99]"><Plus className="w-4 h-4"/>העלאת תמונה למאגר<input type="file" accept="image/*" className="hidden" onChange={e=>{uploadAvatar(e.target.files?.[0]);e.currentTarget.value=''}}/></label>
       <div className="text-[10px] text-slate-400 mt-1 mb-2">התמונה נחתכת אוטומטית לריבוע ונשמרת במאגר המשותף.</div>
       {avatarLibrary.length>0?<div className="grid grid-cols-4 gap-2 max-h-56 overflow-y-auto bg-[#F8F6F2] p-2 rounded-2xl border border-slate-100">{avatarLibrary.map(a=><div key={a.id} className="relative"><button type="button" onClick={()=>set('avatarUrl',a.src)} className={`w-full aspect-square rounded-2xl overflow-hidden border-2 transition ${f.avatarUrl===a.src?'border-[#7047D7] ring-2 ring-[#7047D7]/20':'border-transparent'}`}><img src={a.src} className="w-full h-full object-cover"/>{f.avatarUrl===a.src&&<span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#7047D7] text-white flex items-center justify-center"><Check className="w-3 h-3"/></span>}</button><button type="button" onClick={()=>deleteAvatar(a.id)} className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white border shadow text-rose-500 flex items-center justify-center"><X className="w-3 h-3"/></button></div>)}</div>:<div className="bg-slate-50 rounded-2xl p-4 text-center text-xs text-slate-400">המאגר עדיין ריק — העלי תמונה ראשונה 💜</div>}
       </div><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
-    {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
-    {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option><option>תמ״ל</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
-    {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
+    {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.kind||'regular'} onChange={e=>set('kind',e.target.value)}><option value="regular">משימה רגילה</option><option value="ongoing">משימה שוטפת</option></select>{(f.kind||'regular')==='regular'&&<div className="grid grid-cols-2 gap-2"><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/></div>}<select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
+    {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option><option>תמ״ל</option><option>לימודים</option><option>הפניה</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
+    {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><select className={input} value={f.repeatFrequency||'none'} onChange={e=>set('repeatFrequency',e.target.value)}><option value="none">אירוע חד־פעמי</option><option value="daily">חוזר כל יום</option><option value="weekly">חוזר כל שבוע</option><option value="biweekly">חוזר כל שבועיים</option><option value="monthly">חוזר כל חודש</option></select>{(f.repeatFrequency&&f.repeatFrequency!=='none')&&<div><div className="text-xs font-bold mb-1">חוזר עד (אופציונלי)</div><input type="date" className={input} min={f.date||todayISO()} value={f.repeatUntil||''} onChange={e=>set('repeatUntil',e.target.value)}/></div>}<textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
     <button onClick={save} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-bold flex justify-center items-center gap-2"><Save className="w-4 h-4"/>שמירה</button>
   </div></Modal>
 }
