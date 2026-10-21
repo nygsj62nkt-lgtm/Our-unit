@@ -1,4 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
+import { addDoc, collection, doc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import {
   Home, CheckSquare, Plus, Calendar, CalendarDays, Bell, SlidersHorizontal,
   ChevronRight, ChevronLeft, Users, Crown, AlertCircle, Palmtree, X, Check,
@@ -7,53 +11,111 @@ import {
 } from 'lucide-react';
 
 type Tab = 'today' | 'tasks' | 'leaves' | 'schedule' | 'people';
-type Category = 'soldier' | 'commander';
+type Category = 'soldier' | 'commander' | 'reserve';
 type TaskStatus = 'open' | 'in_progress' | 'completed' | 'overdue';
+type TaskKind = 'regular' | 'ongoing';
+type RepeatFrequency = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
 
 interface Comment { id:string; author:string; text:string; at:string; }
 interface Audit { id:string; actor:string; text:string; at:string; }
 interface Person {
-  id:string; name:string; rank:string; role:string; category:Category; phone:string;
+  id:string; name:string; category:Category;
   notes:string; avatarUrl:string; active:boolean;
 }
 interface Task {
   id:string; title:string; dueDate:string; dueTime?:string; responsibleId:string;
-  responsibleName:string; avatarUrl:string; imageUrl?:string; status:TaskStatus;
+  responsibleName:string; avatarUrl:string; imageUrl?:string; status:TaskStatus; kind?:TaskKind;
   description?:string; createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
 }
 interface Leave {
-  id:string; personId:string; name:string; type:'חופש'|'גימלים'|'קורס'|'אפטר';
+  id:string; personId:string; name:string; type:'חופש'|'גימלים'|'קורס'|'אפטר'|'תמ״ל'|'לימודים'|'הפניה';
   startDate:string; endDate:string; avatarUrl:string; category:Category; note?:string;
   createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
 }
 interface ScheduleEvent {
   id:string; title:string; date:string; time:string; endTime:string; description?:string;
-  personIds:string[]; createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
+  personIds:string[]; repeatFrequency?:RepeatFrequency; repeatUntil?:string; createdBy:string; createdAt:string; updatedBy:string; updatedAt:string;
   comments:Comment[]; audit:Audit[];
 }
 interface Notification { id:string; text:string; at:string; read:boolean; target:Tab; entityId?:string; }
+type DutyType = 'תורנות' | 'שמירה' | 'סגירת שבת';
+interface Duty {
+  id:string; personId:string; personName:string; avatarUrl:string; type:DutyType;
+  startDate:string; endDate:string; startTime?:string; endTime?:string; note?:string;
+  createdBy:string; createdAt:string; updatedBy:string; updatedAt:string; active:boolean;
+}
+interface ManagementMessage { id:string; author:string; avatarUrl:string; text:string; at:string; }
 
-const CURRENT_USER = 'עדי';
+let CURRENT_USER = 'מפקד/ת';
+
+const firebaseConfig = {
+  apiKey: 'AIzaSyB7McjnXFMPyIkIzNML4l2dXzo2Nf2Wvt8',
+  authDomain: 'our-unit.firebaseapp.com',
+  projectId: 'our-unit',
+  storageBucket: 'our-unit.firebasestorage.app',
+  messagingSenderId: '136384065875',
+  appId: '1:136384065875:web:cb2dac4435893a7e7c31a6',
+  measurementId: 'G-EVMG15FL0K'
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
 const nowText = () => new Date().toLocaleString('he-IL', {dateStyle:'short', timeStyle:'short'});
-const todayISO = () => new Date().toISOString().slice(0,10);
+const todayISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+};
+const addOneHour = (time:string) => {
+  const [h,m] = (time || '08:00').split(':').map(Number);
+  const total = (h*60 + m + 60) % (24*60);
+  return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+};
 const fmtDate = (iso:string) => iso ? new Date(iso+'T12:00:00').toLocaleDateString('he-IL') : '';
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+const isoFromDate = (d:Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const dateFromISO = (iso:string) => new Date(iso+'T12:00:00');
+const addDaysISO = (iso:string,days:number) => { const d=dateFromISO(iso); d.setDate(d.getDate()+days); return isoFromDate(d); };
+const startOfWeekISO = (iso:string) => { const d=dateFromISO(iso); d.setDate(d.getDate()-d.getDay()); return isoFromDate(d); };
+const eventOccursOn = (e:ScheduleEvent,date:string) => {
+  if(date<e.date) return false;
+  if(e.repeatUntil && date>e.repeatUntil) return false;
+  const freq=e.repeatFrequency||'none';
+  if(freq==='none') return e.date===date;
+  const start=dateFromISO(e.date), target=dateFromISO(date);
+  const days=Math.round((target.getTime()-start.getTime())/86400000);
+  if(freq==='daily') return days>=0;
+  if(freq==='weekly') return days>=0 && days%7===0;
+  if(freq==='biweekly') return days>=0 && days%14===0;
+  return target.getDate()===start.getDate();
+};
 
-const initialPeople:Person[] = [
-  {id:'p1',name:'דניאל',rank:'טוראי',role:'לוחמת',category:'soldier',phone:'050-0000001',notes:'',avatarUrl:'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p2',name:'כהן',rank:'רב״ט',role:'מש״ק',category:'soldier',phone:'050-0000002',notes:'',avatarUrl:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p3',name:'לוי',rank:'סמל',role:'אחראי ציוד',category:'soldier',phone:'050-0000003',notes:'',avatarUrl:'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p4',name:'מאיה',rank:'סג״ם',role:'מפקדת צוות',category:'commander',phone:'050-0000004',notes:'',avatarUrl:'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=face',active:true},
-  {id:'p5',name:'שיר',rank:'סגן',role:'מפקדת מחלקה',category:'commander',phone:'050-0000005',notes:'',avatarUrl:'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=120&h=120&fit=crop&crop=face',active:true},
-];
+const DEFAULT_AVATAR = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="40" fill="%23EEE7FF"/><circle cx="100" cy="78" r="34" fill="%237047D7" opacity=".72"/><path d="M42 178c5-39 28-59 58-59s53 20 58 59" fill="%237047D7" opacity=".72"/></svg>`)}`;
+type AvatarLibraryItem = { id:string; src:string; createdAt:string };
+
+
+
+const initialPeople:Person[] = [];
 
 const seedAudit = (text:string):Audit[] => [{id:uid(),actor:'עדי',text,at:nowText()}];
 
-export default function App() {
+function AppCore() {
+  const [authUser,setAuthUser] = useState<User|null>(null);
+  const [authReady,setAuthReady] = useState(false);
+  const [loginEmail,setLoginEmail] = useState('');
+  const [loginPassword,setLoginPassword] = useState('');
+  const [loginError,setLoginError] = useState('');
+  const [syncReady,setSyncReady] = useState(false);
+  const [pushStatus,setPushStatus] = useState<'idle'|'working'|'enabled'|'unsupported'|'denied'|'error'>('idle');
+  const [pushError,setPushError] = useState('');
+  const [pushStage,setPushStage] = useState('');
+  const lastRemoteJson = useRef('');
   const [activeTab,setActiveTab] = useState<Tab>('today');
-  const [taskFilter,setTaskFilter] = useState<'all'|'open'|'overdue'|'done'>('all');
+  const [taskFilter,setTaskFilter] = useState<'all'|'open'|'ongoing'|'overdue'|'done'>('all');
   const [leaveTab,setLeaveTab] = useState<Category>('soldier');
   const [people,setPeople] = useState<Person[]>(initialPeople);
   const [selectedPerson,setSelectedPerson] = useState<Person|null>(null);
@@ -66,46 +128,151 @@ export default function App() {
   const [notificationsOpen,setNotificationsOpen] = useState(false);
   const [comment,setComment] = useState('');
   const [selectedDay,setSelectedDay] = useState(todayISO());
+  const [scheduleView,setScheduleView] = useState<'day'|'week'>('day');
+  const [leaveSelectedDay,setLeaveSelectedDay] = useState(todayISO());
+  const [leaveMonth,setLeaveMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
-  const [bannerMessage,setBannerMessage] = useState(() => localStorage.getItem('unit_banner_message') || 'יום טוב ומנצח! ✨');
+  const [bannerMessage,setBannerMessage] = useState('יום טוב ומנצח! ✨');
   const [isEditingBanner,setIsEditingBanner] = useState(false);
   const [tempBannerInput,setTempBannerInput] = useState('');
 
-  const [tasks,setTasks] = useState<Task[]>([
-    {id:'1',title:'להכין ציוד לאימון',dueDate:todayISO(),responsibleId:'p1',responsibleName:'דניאל',avatarUrl:initialPeople[0].avatarUrl,status:'overdue',description:'להכין את כל הציוד לקראת אימון פלוגתי',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')},
-    {id:'2',title:'להעביר רשימת חיילים',dueDate:todayISO(),responsibleId:'p5',responsibleName:'שיר',avatarUrl:initialPeople[4].avatarUrl,status:'in_progress',description:'סגירת רשימה שמית סופית',createdBy:'מאיה',createdAt:nowText(),updatedBy:'מאיה',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')},
-    {id:'3',title:'לתאם הסעות שבועיות',dueDate:todayISO(),responsibleId:'p3',responsibleName:'לוי',avatarUrl:initialPeople[2].avatarUrl,status:'completed',description:'תיאום הסעה שבועית',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')},
-    {id:'4',title:'עדכון נוהל שבת',dueDate:todayISO(),responsibleId:'p4',responsibleName:'מאיה',avatarUrl:initialPeople[3].avatarUrl,status:'open',description:'רענון פקודות ותדריך',createdBy:'שיר',createdAt:nowText(),updatedBy:'שיר',updatedAt:nowText(),comments:[],audit:seedAudit('יצרה את המשימה')}
-  ]);
-  const [leaves,setLeaves] = useState<Leave[]>([
-    {id:'l1',personId:'p3',name:'לוי',type:'חופש',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[2].avatarUrl,category:'soldier',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה חופש')},
-    {id:'l2',personId:'p2',name:'כהן',type:'חופש',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[1].avatarUrl,category:'soldier',createdBy:'מאיה',createdAt:nowText(),updatedBy:'מאיה',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה חופש')},
-    {id:'l3',personId:'p1',name:'דניאל',type:'גימלים',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[0].avatarUrl,category:'soldier',createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה גימלים')},
-    {id:'l4',personId:'p4',name:'מאיה',type:'קורס',startDate:todayISO(),endDate:todayISO(),avatarUrl:initialPeople[3].avatarUrl,category:'commander',createdBy:'שיר',createdAt:nowText(),updatedBy:'שיר',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה קורס')}
-  ]);
-  const [events,setEvents] = useState<ScheduleEvent[]>([
-    {id:'e1',title:'מסדר ותדריך בוקר',date:todayISO(),time:'08:00',endTime:'09:00',description:'',personIds:[],createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה אירוע')},
-    {id:'e2',title:'אימון פלוגתי מרוכז',date:todayISO(),time:'10:00',endTime:'12:00',description:'',personIds:[],createdBy:'מאיה',createdAt:nowText(),updatedBy:'מאיה',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה אירוע')},
-    {id:'e3',title:'ישיבת מפקדי צוותים',date:todayISO(),time:'13:00',endTime:'14:00',description:'',personIds:['p4','p5'],createdBy:'עדי',createdAt:nowText(),updatedBy:'עדי',updatedAt:nowText(),comments:[],audit:seedAudit('הוסיפה אירוע')}
-  ]);
-  const [notifications,setNotifications] = useState<Notification[]>([
-    {id:'n1',text:'מאיה עדכנה את המשימה "להעביר רשימת חיילים"',at:nowText(),read:false,target:'tasks',entityId:'2'},
-    {id:'n2',text:'נוסף חופש חדש ללוי',at:nowText(),read:false,target:'leaves',entityId:'l1'}
-  ]);
+  const [tasks,setTasks] = useState<Task[]>([]);
+  const [leaves,setLeaves] = useState<Leave[]>([]);
+  const [events,setEvents] = useState<ScheduleEvent[]>([]);
+  const [notifications,setNotifications] = useState<Notification[]>([]);
+  const [duties,setDuties] = useState<Duty[]>([]);
+  const [managementMessages,setManagementMessages] = useState<ManagementMessage[]>([]);
+  const [avatarLibrary,setAvatarLibrary] = useState<AvatarLibraryItem[]>([]);
+  const [managementChatOpen,setManagementChatOpen] = useState(false);
+  const [managementText,setManagementText] = useState('');
+  const [dutyFormOpen,setDutyFormOpen] = useState(false);
+  const [dutyPersonId,setDutyPersonId] = useState('');
+  const [dutyType,setDutyType] = useState<DutyType>('תורנות');
+  const [dutyStartDate,setDutyStartDate] = useState(todayISO());
+  const [dutyEndDate,setDutyEndDate] = useState(todayISO());
+  const [dutyStartTime,setDutyStartTime] = useState('');
+  const [dutyEndTime,setDutyEndTime] = useState('');
+  const [dutyNote,setDutyNote] = useState('');
 
-  const notify = (text:string,target:Tab,entityId?:string) => setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
-  const currentLeaves = useMemo(() => leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO()),[leaves]);
+  useEffect(()=>onAuthStateChanged(auth,user=>{
+    setAuthUser(user); setAuthReady(true);
+    if(user) CURRENT_USER = user.displayName || user.email?.split('@')[0] || 'מפקד/ת';
+  }),[]);
+
+  useEffect(()=>{
+    if(!authUser) { setSyncReady(false); return; }
+    const safetyTimer = window.setTimeout(() => setSyncReady(true), 5000);
+    const ref=doc(db,'appState','main');
+    const unsubscribe = onSnapshot(ref,snap=>{
+      const d:any=snap.data();
+      if(d){
+        const payload={people:d.people||[],tasks:d.tasks||[],leaves:d.leaves||[],events:d.events||[],notifications:d.notifications||[],duties:d.duties||[],managementMessages:d.managementMessages||[],avatarLibrary:d.avatarLibrary||[],bannerMessage:d.bannerMessage||'יום טוב ומנצח! ✨'};
+        lastRemoteJson.current=JSON.stringify(payload);
+        setPeople(payload.people); setTasks(payload.tasks); setLeaves(payload.leaves); setEvents(payload.events);
+        setNotifications(payload.notifications); setDuties(payload.duties); setManagementMessages(payload.managementMessages);
+        setAvatarLibrary(payload.avatarLibrary); setBannerMessage(payload.bannerMessage);
+      } else { lastRemoteJson.current=''; }
+      setSyncReady(true);
+    },err=>{ console.error(err); setLoginError('אין גישה למסד הנתונים. צריך לעדכן את כללי Firestore.'); setSyncReady(true); });
+    return () => { window.clearTimeout(safetyTimer); unsubscribe(); };
+  },[authUser]);
+
+  useEffect(()=>{
+    if(!authUser||!syncReady) return;
+    const payload={people,tasks,leaves,events,notifications,duties,managementMessages,avatarLibrary,bannerMessage};
+    const json=JSON.stringify(payload);
+    if(json===lastRemoteJson.current) return;
+    const timer=setTimeout(()=>{
+      const cleanPayload = JSON.parse(JSON.stringify(payload));
+      setDoc(doc(db,'appState','main'),cleanPayload,{merge:false}).catch(err=>{console.error(err);setLoginError('השמירה בענן נכשלה.');});
+    },350);
+    return ()=>clearTimeout(timer);
+  },[authUser,syncReady,people,tasks,leaves,events,notifications,duties,managementMessages,avatarLibrary,bannerMessage]);
+
+  const enablePush = async()=>{
+    if(!authUser) return;
+    setPushStatus('working');
+    setPushError('');
+    setPushStage('בודקת תמיכה בהתראות');
+    try{
+      const supported = await isSupported();
+      if(!supported || !('serviceWorker' in navigator)){
+        setPushStatus('unsupported');
+        setPushStage('');
+        return;
+      }
+
+      setPushStage('מבקשת הרשאה להתראות');
+      const permission = await Notification.requestPermission();
+      if(permission!=='granted'){
+        setPushStatus('denied');
+        setPushStage('');
+        return;
+      }
+
+      setPushStage('רושמת Service Worker');
+      await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      const registration = await navigator.serviceWorker.ready;
+
+      setPushStage('מבקשת FCM token');
+      const messaging = getMessaging(firebaseApp);
+      const token = await getToken(messaging,{
+        vapidKey:'BM5djlrpEGQahKXA6zZSBAacG0WKqeGby56P945hVhPLQPiEPHeuo1HjHgQAKQ8EaVxgDn8qi3Bzav6EfiGnM3A',
+        serviceWorkerRegistration:registration
+      });
+      if(!token) throw new Error('לא התקבל token להתראות');
+
+      setPushStage('שומרת token ב-Firestore');
+      await setDoc(doc(db,'pushTokens',authUser.uid),{
+        uid:authUser.uid, token, email:authUser.email||'', name:CURRENT_USER,
+        updatedAt:serverTimestamp(), userAgent:navigator.userAgent
+      },{merge:true});
+
+      setPushStage('');
+      setPushStatus('enabled');
+    }catch(err){
+      console.error('Push setup failed',err);
+      const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      setPushError(message);
+      setPushStatus('error');
+    }
+  };
+
+  const doLogin=async()=>{
+    setLoginError('');
+    try{await signInWithEmailAndPassword(auth,loginEmail.trim(),loginPassword)}catch{setLoginError('האימייל או הסיסמה לא נכונים.');}
+  };
+
+  if(!authReady) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center font-sans"><div className="font-black text-[#7047D7]">טוען את היחידה שלנו…</div></div>;
+  if(!authUser) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center p-5 font-sans"><div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl border"><div className="text-xs font-bold text-[#7047D7]">היחידה שלנו</div><h1 className="text-2xl font-black mt-1 mb-5">כניסת מפקדים</h1><div className="space-y-3"><input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="אימייל" className="w-full p-3.5 bg-slate-50 border rounded-2xl"/><input type="password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')doLogin()}} placeholder="סיסמה" className="w-full p-3.5 bg-slate-50 border rounded-2xl"/>{loginError&&<div className="text-xs text-rose-500 font-bold">{loginError}</div>}<button onClick={doLogin} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-black">כניסה</button></div></div></div>;
+  if(!syncReady) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center font-sans"><div className="font-black text-[#7047D7]">מסנכרן נתונים…</div></div>;
+
+  const notify = (text:string,target:Tab,entityId?:string) => {
+    setNotifications(n => [{id:uid(),text,at:nowText(),read:false,target,entityId},...n]);
+    if(authUser){
+      addDoc(collection(db,'pushEvents'),{
+        text,target,entityId:entityId||'',actorUid:authUser.uid,actorName:CURRENT_USER,createdAt:serverTimestamp()
+      }).catch(err=>console.error('Push event write failed',err));
+    }
+  };
+  const currentLeaves = leaves.filter(l => l.startDate <= todayISO() && l.endDate >= todayISO());
   const soldierOut = currentLeaves.filter(l=>l.category==='soldier');
   const commanderOut = currentLeaves.filter(l=>l.category==='commander');
-  const overdueTasks = tasks.filter(t=>t.status==='overdue' || (t.status!=='completed' && t.dueDate < todayISO()));
+  const overdueTasks = tasks.filter(t=>t.kind!=='ongoing' && (t.status==='overdue' || (t.status!=='completed' && t.dueDate < todayISO())));
   const openTasks = tasks.filter(t=>t.status!=='completed');
-  const filteredTasks = tasks.filter(t => taskFilter==='all' ? true : taskFilter==='done' ? t.status==='completed' : taskFilter==='overdue' ? overdueTasks.some(x=>x.id===t.id) : t.status==='open' || t.status==='in_progress');
+  const filteredTasks = tasks.filter(t => taskFilter==='all' ? true : taskFilter==='done' ? t.status==='completed' : taskFilter==='ongoing' ? t.kind==='ongoing' : taskFilter==='overdue' ? overdueTasks.some(x=>x.id===t.id) : (t.status==='open' || t.status==='in_progress') && t.kind!=='ongoing');
   const unread = notifications.filter(n=>!n.read).length;
-  const todayEvents = events.filter(e=>e.date===todayISO()).sort((a,b)=>a.time.localeCompare(b.time));
+  const todayEvents = events.filter(e=>eventOccursOn(e,todayISO())).sort((a,b)=>a.time.localeCompare(b.time));
+  const selectedDayLeaves = leaves.filter(l =>
+    l.category===leaveTab && l.startDate<=leaveSelectedDay && l.endDate>=leaveSelectedDay
+  );
 
-  const goTasks = (filter:'all'|'open'|'overdue'|'done') => { setTaskFilter(filter); setActiveTab('tasks'); };
+  const goTasks = (filter:'all'|'open'|'ongoing'|'overdue'|'done') => { setTaskFilter(filter); setActiveTab('tasks'); };
   const openBanner = () => { setTempBannerInput(bannerMessage); setIsEditingBanner(true); };
-  const saveBanner = () => { if(tempBannerInput.trim()){setBannerMessage(tempBannerInput.trim());localStorage.setItem('unit_banner_message',tempBannerInput.trim());notify(`${CURRENT_USER} עדכנה את הודעת הבית`,'today');} setIsEditingBanner(false); };
+  const saveBanner = () => { if(tempBannerInput.trim()){setBannerMessage(tempBannerInput.trim());notify(`${CURRENT_USER} עדכנה את הודעת הבית`,'today');} setIsEditingBanner(false); };
 
   const openForm = (type:'task'|'leave'|'event'|'person', id?:string) => { setFormType(type); setEditingId(id||null); setQuickAdd(false); };
   const closeDetails = () => {setSelectedTask(null);setSelectedLeave(null);setSelectedEvent(null);setSelectedPerson(null);setComment('');};
@@ -114,7 +281,7 @@ export default function App() {
     const text=comment.trim(); if(!text)return;
     const c={id:uid(),author:CURRENT_USER,text,at:nowText()};
     if(kind==='task'){setTasks(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedTask(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה במשימה`,'tasks',id);}
-    if(kind==='leave'){setLeaves(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedLeave(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה בחופש`,'leaves',id);}
+    if(kind==='leave'){setLeaves(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedLeave(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה בדיווח נוכחות`,'leaves',id);}
     if(kind==='event'){setEvents(xs=>xs.map(x=>x.id===id?{...x,comments:[...x.comments,c]}:x));setSelectedEvent(x=>x&&x.id===id?{...x,comments:[...x.comments,c]}:x);notify(`${CURRENT_USER} הגיבה באירוע לו״ז`,'schedule',id);}
     setComment('');
   };
@@ -122,74 +289,118 @@ export default function App() {
   const deleteEntity=(kind:'task'|'leave'|'event',id:string)=>{
     if(!confirm('למחוק את הפריט?'))return;
     if(kind==='task'){setTasks(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה משימה`,'tasks');}
-    if(kind==='leave'){setLeaves(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה חופש`,'leaves');}
+    if(kind==='leave'){setLeaves(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה דיווח נוכחות`,'leaves');}
     if(kind==='event'){setEvents(x=>x.filter(i=>i.id!==id));notify(`${CURRENT_USER} מחקה אירוע לו״ז`,'schedule');}
     closeDetails();
   };
 
-  return <div className="flex justify-center bg-[#18181B] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
-    <div className="w-full max-w-[440px] bg-[#FAF9F6] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40">
+  const addDuty=()=>{
+    const person=people.find(p=>p.id===dutyPersonId) || selectedPerson;
+    if(!person) return alert('צריך לבחור אדם');
+    const at=nowText();
+    const d:Duty={id:uid(),personId:person.id,personName:person.name,avatarUrl:person.avatarUrl,type:dutyType,startDate:dutyStartDate,endDate:dutyEndDate,startTime:dutyStartTime,endTime:dutyEndTime,note:dutyNote,createdBy:CURRENT_USER,createdAt:at,updatedBy:CURRENT_USER,updatedAt:at,active:true};
+    setDuties(xs=>[d,...xs]); notify(`${CURRENT_USER} הוסיפה ${dutyType} ל${person.name}`,'people',person.id);
+    setDutyFormOpen(false); setDutyPersonId(''); setDutyType('תורנות'); setDutyStartDate(todayISO()); setDutyEndDate(todayISO()); setDutyStartTime(''); setDutyEndTime(''); setDutyNote('');
+  };
+  const sendManagementMessage=()=>{
+    const text=managementText.trim(); if(!text)return;
+    const me=people.find(p=>p.name===CURRENT_USER);
+    setManagementMessages(xs=>[...xs,{id:uid(),author:CURRENT_USER,avatarUrl:me?.avatarUrl||DEFAULT_AVATAR,text,at:nowText()}]);
+    notify(`${CURRENT_USER} כתבה בצ׳אט המפקדים: ${text}`,'today');
+    setManagementText('');
+  };
+
+  return <div className="flex justify-center bg-[#E9E7E3] min-h-screen font-sans antialiased text-slate-800" dir="rtl">
+    <div className="w-full max-w-[440px] bg-[#F8F6F2] min-h-screen flex flex-col relative pb-28 shadow-2xl overflow-hidden border-x border-slate-200/40"><button onClick={()=>signOut(auth)} className="absolute top-2 left-2 z-20 text-[9px] text-slate-400 bg-white/80 border px-2 py-1 rounded-lg">יציאה</button>
       <div className="flex-1 overflow-y-auto px-4 pt-5 pb-6">
         {activeTab==='today' && <div className="space-y-4">
           <Header title="היום ביחידה" subtitle={new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} onBell={()=>setNotificationsOpen(true)} unread={unread}/>
+          {pushStatus!=='enabled'&&<div className="space-y-2"><button onClick={enablePush} disabled={pushStatus==='working'} className="w-full bg-white border border-purple-100 rounded-2xl p-3 flex items-center justify-between shadow-sm text-right"><div className="flex items-center gap-3"><span className="w-10 h-10 rounded-full bg-purple-50 text-[#7047D7] flex items-center justify-center"><Bell className="w-5 h-5"/></span><div><div className="font-black text-sm">הפעלת התראות לטלפון</div><div className="text-[10px] text-slate-400">{pushStatus==='working'?(pushStage||'מחברת התראות…'):pushStatus==='denied'?'ההרשאה נדחתה — אפשר לאפשר בהגדרות':pushStatus==='unsupported'?'באייפון: הוסיפי למסך הבית ופתחי משם':pushStatus==='error'?'הייתה שגיאה — הפירוט מופיע למטה':'לקבלת עדכונים גם כשהאתר סגור'}</div></div></div><ChevronLeft className="w-4 h-4 text-slate-300"/></button>{pushStatus==='error'&&<div className="w-full bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl p-3 text-right"><div className="font-black text-xs mb-1">שגיאה בהפעלת ההתראות</div><div className="text-[10px] break-words whitespace-pre-wrap">{pushStage&&`שלב: ${pushStage}\n`}{pushError}</div></div>}</div>}
+          <button onClick={()=>setManagementChatOpen(true)} className="w-full bg-gradient-to-l from-[#EEE1FF] to-[#F7EFFF] text-[#7047D7] rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3"><span className="w-10 h-10 rounded-full bg-white/70 flex items-center justify-center"><MessageCircle className="w-5 h-5"/></span><div className="text-right"><div className="font-black text-sm">צ׳אט מפקדים</div><div className="text-[10px] opacity-70">{managementMessages.length?`${managementMessages.length} הודעות`:'להתייעצויות ועדכונים בינינו'}</div></div></div><ChevronLeft className="w-4 h-4"/>
+          </button>
           <div onClick={openBanner} className="relative h-32 rounded-3xl overflow-hidden shadow-sm flex items-center justify-center cursor-pointer active:scale-[.99] transition-transform">
-            <img src="https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=800&fit=crop" className="absolute inset-0 w-full h-full object-cover brightness-75"/>
+            <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=900&fit=crop" className="absolute inset-0 w-full h-full object-cover brightness-[0.92] saturate-[1.15]"/>
             <div className="relative text-center px-4"><h2 className="text-white text-2xl font-black">{bannerMessage}</h2><span className="text-[11px] text-white/80">לחץ לעריכת ההודעה ✎</span></div>
             <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-md p-1.5 rounded-full text-white"><Pencil className="w-3 h-3"/></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Stat title="חיילים בחופש" value={soldierOut.length} icon={<Users className="w-4 h-4"/>} onClick={()=>{setLeaveTab('soldier');setActiveTab('leaves')}}/>
-            <Stat title="מפקדים בחופש" value={commanderOut.length} icon={<Crown className="w-4 h-4"/>} onClick={()=>{setLeaveTab('commander');setActiveTab('leaves')}}/>
+            <Stat title="חיילים לא ביחידה" value={soldierOut.length} icon={<Users className="w-4 h-4"/>} onClick={()=>{setLeaveTab('soldier');setActiveTab('leaves')}}/>
+            <Stat title="מפקדים לא ביחידה" value={commanderOut.length} icon={<Crown className="w-4 h-4"/>} onClick={()=>{setLeaveTab('commander');setActiveTab('leaves')}}/>
             <Stat title="משימות פתוחות" value={openTasks.length} icon={<CheckSquare className="w-4 h-4"/>} onClick={()=>goTasks('open')}/>
             <Stat title="משימות באיחור" value={overdueTasks.length} icon={<AlertCircle className="w-4 h-4"/>} danger onClick={()=>goTasks('overdue')}/>
           </div>
-          <Section title="היום בלו״ז" action="לכל השבוע" onAction={()=>setActiveTab('schedule')}>
-            <div className="space-y-3">{todayEvents.length?todayEvents.map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className="w-full flex items-center gap-3 text-right"><span className="text-xs font-bold text-slate-400 w-11">{e.time}</span><span className="w-2 h-2 rounded-full bg-[#5B4B67]"/><span className="text-xs font-bold">{e.title}</span></button>):<Empty text="אין אירועים היום"/>}</div>
+          <Section title="היום בלו״ז" action="לכל השבוע" onAction={()=>{setScheduleView('week');setSelectedDay(todayISO());setActiveTab('schedule')}}>
+            <div className="space-y-3">{todayEvents.length?todayEvents.map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className="w-full flex items-center gap-3 text-right"><span className="text-xs font-bold text-slate-400 w-11">{e.time}</span><span className="w-2 h-2 rounded-full bg-[#7047D7]"/><span className="text-xs font-bold">{e.title}</span></button>):<Empty text="אין אירועים היום"/>}</div>
           </Section>
-          <Section title="בחופשה היום 🌴" action="לכל החופשות" onAction={()=>setActiveTab('leaves')}>
-            <div className="flex gap-3 overflow-x-auto">{currentLeaves.length?currentLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="min-w-[92px] bg-slate-50 p-2.5 rounded-2xl"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover mx-auto"/><div className="text-xs font-bold mt-1">{l.name}</div><div className="text-[10px] text-slate-400">{l.type}</div></button>):<Empty text="אף אחד לא בחופש היום"/>}</div>
+          <Section title="נוכחות היום" action="לכל הנוכחות" onAction={()=>setActiveTab('leaves')}>
+            <div className="flex gap-3 overflow-x-auto">{currentLeaves.length?currentLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="min-w-[92px] bg-slate-50 p-2.5 rounded-2xl"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover mx-auto"/><div className="text-xs font-bold mt-1">{l.name}</div><div className="text-[10px] text-slate-400">{l.type}</div></button>):<Empty text="אין דיווחי היעדרות היום"/>}</div>
           </Section>
         </div>}
 
         {activeTab==='tasks' && <div className="space-y-4">
           <PageTitle title="משימות" subtitle="מעקב וניהול משימות היחידה" action={()=>openForm('task')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-            {([['all','הכל'],['open','פתוחות'],['overdue','באיחור'],['done','הושלמו']] as const).map(([k,l])=><button key={k} onClick={()=>setTaskFilter(k)} className={`flex-1 py-2 rounded-xl ${taskFilter===k?'bg-[#5B4B67] text-white':'text-slate-500'}`}>{l}</button>)}
+            {([['all','הכל'],['open','פתוחות'],['ongoing','שוטפות'],['overdue','באיחור'],['done','הושלמו']] as const).map(([k,l])=><button key={k} onClick={()=>setTaskFilter(k)} className={`flex-1 py-2 rounded-xl ${taskFilter===k?'bg-[#7047D7] text-white':'text-slate-500'}`}>{l}</button>)}
           </div>
-          <div className="space-y-2.5">{filteredTasks.length?filteredTasks.map(t=><button key={t.id} onClick={()=>setSelectedTask(t)} className="w-full bg-white p-3.5 rounded-3xl border border-slate-100 flex items-center justify-between text-right">
-            <div><div className="font-extrabold text-sm">{t.title}</div><div className="text-[11px] text-slate-400 mt-1">{fmtDate(t.dueDate)} • אחראי: {t.responsibleName}</div><div className="text-[10px] text-slate-400 mt-1">עודכן ע״י {t.updatedBy}</div></div><ChevronLeft className="w-4 h-4 text-slate-300"/>
+          <div className="space-y-2.5">{filteredTasks.length?filteredTasks.map(t=><button key={t.id} onClick={()=>setSelectedTask(t)} className="w-full bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between text-right">
+            <div className="flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${t.status==='completed'?'bg-[#DDF5E3] text-[#27824A]':overdueTasks.some(x=>x.id===t.id)?'bg-[#FFE4E4] text-[#D54A4A]':'bg-[#FFF1CE] text-[#D99A20]'}`}>{t.status==='completed'?<Check className="w-4 h-4"/>:overdueTasks.some(x=>x.id===t.id)?<AlertCircle className="w-4 h-4"/>:<Clock3 className="w-4 h-4"/>}</span><div><div className="font-extrabold text-sm">{t.title}</div><div className="text-[11px] text-slate-400 mt-1">{t.kind==='ongoing'?'משימה שוטפת':fmtDate(t.dueDate)} • אחראי: {t.responsibleName||'לא שויך'}</div><div className="text-[10px] text-slate-400 mt-1">עודכן ע״י {t.updatedBy}</div></div></div><ChevronLeft className="w-4 h-4 text-slate-300"/>
           </button>):<Empty text="אין משימות במסנן הזה"/>}</div>
         </div>}
 
         {activeTab==='leaves' && <div className="space-y-4">
-          <PageTitle title="ניהול חופשות" subtitle="חיילים ומפקדים מחוץ לבסיס" action={()=>openForm('leave')}/>
+          <PageTitle title="נוכחות" subtitle="מעקב נוכחות, היעדרויות ופעילויות" action={()=>openForm('leave')}/>
           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-            <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>חיילים ({leaves.filter(x=>x.category==='soldier').length})</button>
-            <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#5B4B67] text-white':'text-slate-500'}`}>מפקדים ({leaves.filter(x=>x.category==='commander').length})</button>
+            <button onClick={()=>setLeaveTab('soldier')} className={`flex-1 py-2 rounded-xl ${leaveTab==='soldier'?'bg-[#7047D7] text-white':'text-slate-500'}`}>חיילים</button>
+            <button onClick={()=>setLeaveTab('commander')} className={`flex-1 py-2 rounded-xl ${leaveTab==='commander'?'bg-[#7047D7] text-white':'text-slate-500'}`}>מפקדים</button>
+            <button onClick={()=>setLeaveTab('reserve')} className={`flex-1 py-2 rounded-xl ${leaveTab==='reserve'?'bg-[#7047D7] text-white':'text-slate-500'}`}>מילואים</button>
           </div>
-          <div className="space-y-2.5">{leaves.filter(l=>l.category===leaveTab).map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-white p-3.5 rounded-3xl border border-slate-100 flex items-center justify-between text-right">
-            <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div><div className="text-[10px] text-slate-400">נוסף ע״י {l.createdBy}</div></div></div><span className="text-[11px] font-extrabold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl">{l.type}</span>
-          </button>)}</div>
+
+          <LeaveCalendar
+            month={leaveMonth}
+            selectedDay={leaveSelectedDay}
+            leaves={leaves.filter(l=>l.category===leaveTab)}
+            onSelect={setLeaveSelectedDay}
+            onPrev={()=>setLeaveMonth(m=>new Date(m.getFullYear(),m.getMonth()-1,1))}
+            onNext={()=>setLeaveMonth(m=>new Date(m.getFullYear(),m.getMonth()+1,1))}
+            onToday={()=>{
+              const d=new Date();
+              setLeaveMonth(new Date(d.getFullYear(),d.getMonth(),1));
+              setLeaveSelectedDay(todayISO());
+            }}
+          />
+
+          <Section title={`${fmtDate(leaveSelectedDay)} • ${leaveTab==='soldier'?'חיילים':leaveTab==='reserve'?'מילואים':'מפקדים'} • נוכחות`}>
+            <div className="space-y-2.5">
+              {selectedDayLeaves.length ? selectedDayLeaves.map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
+                <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div><div className="text-[10px] text-slate-400">נוסף ע״י {l.createdBy}</div></div></div><span className="text-[11px] font-extrabold bg-[#E0F5E5] text-[#277B47] px-3 py-1 rounded-xl">{l.type}</span>
+              </button>) : <Empty text="אין דיווחי נוכחות ביום הזה"/>}
+            </div>
+          </Section>
+
+          <Section title="כל דיווחי הנוכחות">
+            <div className="space-y-2.5">{leaves.filter(l=>l.category===leaveTab).map(l=><button key={l.id} onClick={()=>setSelectedLeave(l)} className="w-full bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between text-right">
+              <div className="flex items-center gap-3"><img src={l.avatarUrl} className="w-10 h-10 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{l.name}</div><div className="text-xs text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)}</div></div></div><span className="text-[11px] font-extrabold bg-[#E0F5E5] text-[#277B47] px-3 py-1 rounded-xl">{l.type}</span>
+            </button>)}</div>
+          </Section>
         </div>}
 
         {activeTab==='schedule' && <div className="space-y-4">
           <PageTitle title="לו״ז" subtitle="תכנון פעילות היחידה" action={()=>openForm('event')}/>
-          <input type="date" value={selectedDay} onChange={e=>setSelectedDay(e.target.value)} className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"/>
-          <div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-3">
-            {events.filter(e=>e.date===selectedDay).sort((a,b)=>a.time.localeCompare(b.time)).map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className="w-full p-3 rounded-2xl bg-purple-50 border border-purple-100 text-right">
-              <div className="flex justify-between"><span className="font-extrabold text-xs">{e.title}</span><span className="text-[10px]">{e.time}–{e.endTime}</span></div><div className="text-[10px] text-slate-500 mt-1">נוסף ע״י {e.createdBy}</div>
-            </button>)}
-            {!events.some(e=>e.date===selectedDay)&&<Empty text="אין אירועים בתאריך הזה"/>}
-          </div>
+          <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold"><button onClick={()=>setScheduleView('day')} className={`flex-1 py-2 rounded-xl ${scheduleView==='day'?'bg-[#7047D7] text-white':'text-slate-500'}`}>יומי</button><button onClick={()=>setScheduleView('week')} className={`flex-1 py-2 rounded-xl ${scheduleView==='week'?'bg-[#7047D7] text-white':'text-slate-500'}`}>שבועי</button></div>
+          {scheduleView==='day'?<><input type="date" value={selectedDay} onChange={e=>setSelectedDay(e.target.value)} className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"/><div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-3">
+            {events.filter(e=>eventOccursOn(e,selectedDay)).sort((a,b)=>a.time.localeCompare(b.time)).map(e=><button key={e.id} onClick={()=>setSelectedEvent(e)} className={`w-full p-3 rounded-xl text-right border ${Number(e.time.slice(0,2))<10?'bg-[#E9E0FF] border-[#D8C8FF]':Number(e.time.slice(0,2))<13?'bg-[#DDF4E2] border-[#C7EBCF]':Number(e.time.slice(0,2))<15?'bg-[#FFE2E2] border-[#F6CCCC]':'bg-[#DDEEFF] border-[#C9E1F8]'}`}><div className="flex justify-between"><span className="font-extrabold text-xs">{e.title}{e.repeatFrequency&&e.repeatFrequency!=='none'?' ↻':''}</span><span className="text-[10px]">{e.time}–{e.endTime}</span></div><div className="text-[10px] text-slate-500 mt-1">נוסף ע״י {e.createdBy}</div></button>)}
+            {!events.some(e=>eventOccursOn(e,selectedDay))&&<Empty text="אין אירועים בתאריך הזה"/>}
+          </div></>:<div className="space-y-3">{Array.from({length:7},(_,i)=>addDaysISO(startOfWeekISO(selectedDay),i)).map(day=>{const dayEvents=events.filter(e=>eventOccursOn(e,day)).sort((a,b)=>a.time.localeCompare(b.time));return <div key={day} className="bg-white rounded-3xl p-4 border border-slate-100"><div className="flex items-center justify-between mb-3"><div className="font-black text-sm">{dateFromISO(day).toLocaleDateString('he-IL',{weekday:'long'})}</div><div className="text-xs text-slate-400">{fmtDate(day)}</div></div><div className="space-y-2">{dayEvents.length?dayEvents.map(e=><button key={`${e.id}-${day}`} onClick={()=>setSelectedEvent(e)} className="w-full bg-[#F7F3FF] border border-[#E7DCFF] p-3 rounded-2xl flex justify-between text-right"><span className="font-extrabold text-xs">{e.title}{e.repeatFrequency&&e.repeatFrequency!=='none'?' ↻':''}</span><span className="text-[10px] text-slate-500">{e.time}–{e.endTime}</span></button>):<div className="text-xs text-slate-300 py-1">אין אירועים</div>}</div></div>})}<div className="flex gap-2"><button onClick={()=>setSelectedDay(addDaysISO(selectedDay,-7))} className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold">שבוע קודם</button><button onClick={()=>setSelectedDay(todayISO())} className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold">השבוע</button><button onClick={()=>setSelectedDay(addDaysISO(selectedDay,7))} className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold">שבוע הבא</button></div></div>}
         </div>}
 
         {activeTab==='people' && <div className="space-y-4">
           <PageTitle title="כוח אדם" subtitle="חיילים ומפקדים" action={()=>openForm('person')}/>
-          {(['commander','soldier'] as Category[]).map(cat=><Section key={cat} title={cat==='commander'?'מפקדים':'חיילים'}>
+          {(['commander','soldier','reserve'] as Category[]).map(cat=><Section key={cat} title={cat==='commander'?'מפקדים':cat==='reserve'?'מילואים':'חיילים'}>
             <div className="space-y-2">{people.filter(p=>p.category===cat&&p.active).map(p=>{
               const out=currentLeaves.some(l=>l.personId===p.id);
               return <button key={p.id} onClick={()=>setSelectedPerson(p)} className="w-full flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-right">
-                <div className="flex items-center gap-3"><img src={p.avatarUrl} className="w-11 h-11 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{p.rank} {p.name}</div><div className="text-[11px] text-slate-400">{p.role}</div></div></div><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${out?'bg-amber-50 text-amber-700':'bg-emerald-50 text-emerald-700'}`}>{out?'בחופש':'ביחידה'}</span>
+                <div className="flex items-center gap-3"><img src={p.avatarUrl} className="w-11 h-11 rounded-full object-cover"/><div><div className="font-extrabold text-sm">{p.name}</div><div className="text-[11px] text-slate-400">{p.category==='commander'?'מפקד/ת':p.category==='reserve'?'מילואים':'חייל/ת'}</div></div></div><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${out?'bg-amber-50 text-amber-700':'bg-[#E0F5E5] text-[#277B47]'}`}>{out?'לא ביחידה':'ביחידה'}</span>
               </button>
             })}</div>
           </Section>)}
@@ -197,11 +408,11 @@ export default function App() {
       </div>
 
       <nav className="fixed bottom-4 left-0 right-0 flex justify-center px-4 z-40 pointer-events-none">
-        <div className="w-full max-w-[410px] bg-white/95 backdrop-blur-xl border border-slate-200/60 rounded-3xl px-3 py-2 flex items-center justify-between shadow-xl pointer-events-auto">
+        <div className="w-full max-w-[420px] bg-white/95 backdrop-blur-xl border border-slate-200/70 rounded-[24px] px-3 py-2 flex items-center justify-between shadow-[0_8px_28px_rgba(0,0,0,0.10)] pointer-events-auto">
           <Nav active={activeTab==='today'} icon={<Home/>} label="היום" onClick={()=>setActiveTab('today')}/>
           <Nav active={activeTab==='tasks'} icon={<CheckSquare/>} label="משימות" onClick={()=>setActiveTab('tasks')}/>
-          <button onClick={()=>setQuickAdd(true)} className="w-12 h-12 rounded-2xl bg-[#5B4B67] text-white flex items-center justify-center -mt-5"><Plus className="w-6 h-6"/></button>
-          <Nav active={activeTab==='leaves'} icon={<Palmtree/>} label="חופשות" onClick={()=>setActiveTab('leaves')}/>
+          <button onClick={()=>setQuickAdd(true)} className="w-14 h-14 rounded-full bg-[#7047D7] shadow-lg text-white flex items-center justify-center -mt-5"><Plus className="w-6 h-6"/></button>
+          <Nav active={activeTab==='leaves'} icon={<Palmtree/>} label="נוכחות" onClick={()=>setActiveTab('leaves')}/>
           <Nav active={activeTab==='schedule'} icon={<CalendarDays/>} label="לו״ז" onClick={()=>setActiveTab('schedule')}/>
           <Nav active={activeTab==='people'} icon={<Users/>} label="אנשים" onClick={()=>setActiveTab('people')}/>
         </div>
@@ -209,105 +420,227 @@ export default function App() {
 
       {quickAdd&&<Modal title="הוספה חדשה" onClose={()=>setQuickAdd(false)}>
         <Action icon={<CheckSquare/>} title="הוספת משימה" onClick={()=>openForm('task')}/>
-        <Action icon={<Palmtree/>} title="הוספת חופשה" onClick={()=>openForm('leave')}/>
+        <Action icon={<Palmtree/>} title="הוספת נוכחות" onClick={()=>openForm('leave')}/>
         <Action icon={<Calendar/>} title="הוספת אירוע בלו״ז" onClick={()=>openForm('event')}/>
         <Action icon={<UserRound/>} title="הוספת אדם" onClick={()=>openForm('person')}/>
       </Modal>}
 
-      {formType&&<Editor type={formType} editingId={editingId} people={people} tasks={tasks} leaves={leaves} events={events}
+      {formType&&<Editor type={formType} editingId={editingId} people={people} tasks={tasks} leaves={leaves} events={events} avatarLibrary={avatarLibrary} setAvatarLibrary={setAvatarLibrary}
         onClose={()=>{setFormType(null);setEditingId(null)}}
         onPerson={(p,isEdit)=>{setPeople(xs=>isEdit?xs.map(x=>x.id===p.id?p:x):[...xs,p]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} את ${p.name}`,'people',p.id)}}
         onTask={(t,isEdit)=>{setTasks(xs=>isEdit?xs.map(x=>x.id===t.id?t:x):[t,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} משימה: ${t.title}`,'tasks',t.id);setSelectedTask(null)}}
-        onLeave={(l,isEdit)=>{setLeaves(xs=>isEdit?xs.map(x=>x.id===l.id?l:x):[l,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} חופש ל${l.name}`,'leaves',l.id);setSelectedLeave(null)}}
+        onLeave={(l,isEdit)=>{setLeaves(xs=>isEdit?xs.map(x=>x.id===l.id?l:x):[l,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} נוכחות ל${l.name}`,'leaves',l.id);setSelectedLeave(null)}}
         onEvent={(e,isEdit)=>{setEvents(xs=>isEdit?xs.map(x=>x.id===e.id?e:x):[e,...xs]);notify(`${CURRENT_USER} ${isEdit?'עדכנה':'הוסיפה'} אירוע: ${e.title}`,'schedule',e.id);setSelectedEvent(null)}}
       />}
 
       {selectedTask&&<Detail title="פרטי משימה" onClose={()=>setSelectedTask(null)} onEdit={()=>openForm('task',selectedTask.id)} onDelete={()=>deleteEntity('task',selectedTask.id)}
         meta={`נוצר ע״י ${selectedTask.createdBy} • ${selectedTask.createdAt}`} comments={selectedTask.comments} audit={selectedTask.audit} comment={comment} setComment={setComment} onComment={()=>addComment('task',selectedTask.id)}>
-        <h2 className="text-xl font-black">{selectedTask.title}</h2><p className="text-sm text-slate-600">{selectedTask.description}</p><Info label="אחראי" value={selectedTask.responsibleName}/><Info label="תאריך יעד" value={fmtDate(selectedTask.dueDate)}/><Info label="סטטוס" value={selectedTask.status}/>
+        <h2 className="text-xl font-black">{selectedTask.title}</h2><p className="text-sm text-slate-600">{selectedTask.description}</p><Info label="אחראי" value={selectedTask.responsibleName}/><Info label="סוג" value={selectedTask.kind==='ongoing'?'משימה שוטפת':'משימה רגילה'}/>{selectedTask.kind!=='ongoing'&&<Info label="תאריך יעד" value={fmtDate(selectedTask.dueDate)}/>}<Info label="סטטוס" value={selectedTask.status}/>
         {selectedTask.status!=='completed'&&<button onClick={()=>{const updated={...selectedTask,status:'completed' as TaskStatus,updatedBy:CURRENT_USER,updatedAt:nowText(),audit:[...selectedTask.audit,{id:uid(),actor:CURRENT_USER,text:'סימנה את המשימה כהושלמה',at:nowText()}]};setTasks(xs=>xs.map(x=>x.id===updated.id?updated:x));setSelectedTask(updated);notify(`${CURRENT_USER} השלימה את "${updated.title}"`,'tasks',updated.id)}} className="w-full bg-emerald-600 text-white p-3 rounded-2xl font-bold">סימון כהושלמה</button>}
       </Detail>}
 
-      {selectedLeave&&<Detail title="פרטי חופש" onClose={()=>setSelectedLeave(null)} onEdit={()=>openForm('leave',selectedLeave.id)} onDelete={()=>deleteEntity('leave',selectedLeave.id)}
+      {selectedLeave&&<Detail title="פרטי נוכחות" onClose={()=>setSelectedLeave(null)} onEdit={()=>openForm('leave',selectedLeave.id)} onDelete={()=>deleteEntity('leave',selectedLeave.id)}
         meta={`נוסף ע״י ${selectedLeave.createdBy} • ${selectedLeave.createdAt}`} comments={selectedLeave.comments} audit={selectedLeave.audit} comment={comment} setComment={setComment} onComment={()=>addComment('leave',selectedLeave.id)}>
         <h2 className="text-xl font-black">{selectedLeave.name}</h2><Info label="סוג" value={selectedLeave.type}/><Info label="תאריכים" value={`${fmtDate(selectedLeave.startDate)} – ${fmtDate(selectedLeave.endDate)}`}/><p className="text-sm">{selectedLeave.note}</p>
       </Detail>}
 
       {selectedEvent&&<Detail title="אירוע בלו״ז" onClose={()=>setSelectedEvent(null)} onEdit={()=>openForm('event',selectedEvent.id)} onDelete={()=>deleteEntity('event',selectedEvent.id)}
         meta={`נוסף ע״י ${selectedEvent.createdBy} • ${selectedEvent.createdAt}`} comments={selectedEvent.comments} audit={selectedEvent.audit} comment={comment} setComment={setComment} onComment={()=>addComment('event',selectedEvent.id)}>
-        <h2 className="text-xl font-black">{selectedEvent.title}</h2><Info label="תאריך" value={fmtDate(selectedEvent.date)}/><Info label="שעה" value={`${selectedEvent.time} – ${selectedEvent.endTime}`}/><p className="text-sm">{selectedEvent.description}</p>
+        <h2 className="text-xl font-black">{selectedEvent.title}</h2><Info label="תאריך התחלה" value={fmtDate(selectedEvent.date)}/><Info label="שעה" value={`${selectedEvent.time} – ${selectedEvent.endTime}`}/>{selectedEvent.repeatFrequency&&selectedEvent.repeatFrequency!=='none'&&<Info label="חזרה" value={({daily:'כל יום',weekly:'כל שבוע',biweekly:'כל שבועיים',monthly:'כל חודש'} as any)[selectedEvent.repeatFrequency]+(selectedEvent.repeatUntil?` • עד ${fmtDate(selectedEvent.repeatUntil)}`:' • ללא תאריך סיום')}/>}<p className="text-sm">{selectedEvent.description}</p>
       </Detail>}
 
-      {selectedPerson&&<div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
+      {selectedPerson&&<div className="fixed inset-0 z-50 bg-[#F8F6F2] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
         <Top title="פרופיל אישי" onClose={()=>setSelectedPerson(null)}/>
-        <div className="text-center py-4"><img src={selectedPerson.avatarUrl} className="w-24 h-24 rounded-full object-cover mx-auto"/><h2 className="text-xl font-black mt-2">{selectedPerson.rank} {selectedPerson.name}</h2><p className="text-sm text-slate-500">{selectedPerson.role}</p></div>
-        <div className="grid grid-cols-2 gap-2"><Info label="סוג" value={selectedPerson.category==='commander'?'מפקד/ת':'חייל/ת'}/><Info label="טלפון" value={selectedPerson.phone||'לא הוזן'}/></div>
-        <div className="flex gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="flex-1 bg-[#5B4B67] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="flex-1 bg-white border p-3 rounded-2xl font-bold">הוספת חופש</button></div>
-        <Section title="משימות"><div className="space-y-2">{tasks.filter(t=>t.responsibleId===selectedPerson.id).map(t=><button key={t.id} onClick={()=>{setSelectedPerson(null);setSelectedTask(t)}} className="w-full bg-slate-50 p-3 rounded-xl text-right text-sm font-bold">{t.title}</button>)}{!tasks.some(t=>t.responsibleId===selectedPerson.id)&&<Empty text="אין משימות"/>}</div></Section>
-        <div className="h-3"/><Section title="חופשות"><div className="space-y-2">{leaves.filter(l=>l.personId===selectedPerson.id).map(l=><div key={l.id} className="bg-slate-50 p-3 rounded-xl text-sm">{l.type} • {fmtDate(l.startDate)}–{fmtDate(l.endDate)}</div>)}{!leaves.some(l=>l.personId===selectedPerson.id)&&<Empty text="אין חופשות"/>}</div></Section>
+        <div className="text-center py-4"><img src={selectedPerson.avatarUrl} className="w-24 h-24 rounded-full object-cover mx-auto"/><h2 className="text-xl font-black mt-2">{selectedPerson.name}</h2><p className="text-sm text-slate-500">{selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}</p></div>
+        <Info label="סוג" value={selectedPerson.category==='commander'?'מפקד/ת':selectedPerson.category==='reserve'?'מילואים':'חייל/ת'}/>
+        <div className="grid grid-cols-2 gap-2 my-4"><button onClick={()=>openForm('person',selectedPerson.id)} className="bg-[#7047D7] text-white p-3 rounded-2xl font-bold">עריכת פרטים</button><button onClick={()=>openForm('leave')} className="bg-white border p-3 rounded-2xl font-bold">הוספת נוכחות</button><button onClick={()=>{if(confirm(`למחוק את ${selectedPerson.name} מכוח האדם? המשימות ודיווחי הנוכחות הקיימים יישמרו.`)){setPeople(xs=>xs.map(x=>x.id===selectedPerson.id?{...x,active:false}:x));notify(`${CURRENT_USER} הסירה את ${selectedPerson.name} מכוח האדם`,'people',selectedPerson.id);setSelectedPerson(null)}}} className="col-span-2 bg-[#FFE8E8] text-[#C84242] p-3 rounded-2xl font-bold">מחיקה מכוח האדם</button></div>
+        <Section title="תורנויות ושמירות">
+          <div className="space-y-2">
+            <button onClick={()=>{setDutyPersonId(selectedPerson.id);setDutyFormOpen(true)}} className="w-full bg-gradient-to-l from-[#FFF0D8] to-[#FFF8EB] text-[#A96C15] p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Plus className="w-4 h-4"/>הוספת תורנות / שמירה / שבת</button>
+            {duties.filter(d=>d.personId===selectedPerson.id&&d.active).map(d=><div key={d.id} className="bg-slate-50 p-3 rounded-2xl flex items-center justify-between"><div><div className="font-extrabold text-sm">{d.type}</div><div className="text-[10px] text-slate-400">{fmtDate(d.startDate)}{d.endDate!==d.startDate?` – ${fmtDate(d.endDate)}`:''}{d.startTime?` • ${d.startTime}${d.endTime?`–${d.endTime}`:''}`:''}</div>{d.note&&<div className="text-xs mt-1">{d.note}</div>}<div className="text-[9px] text-slate-400 mt-1">הוזן ע״י {d.createdBy}</div></div><button onClick={()=>{if(confirm('למחוק את הרשומה?'))setDuties(xs=>xs.map(x=>x.id===d.id?{...x,active:false}:x))}} className="w-8 h-8 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center"><Trash2 className="w-3.5 h-3.5"/></button></div>)}
+            {!duties.some(d=>d.personId===selectedPerson.id&&d.active)&&<Empty text="אין תורנויות או שמירות"/>}
+          </div>
+        </Section><div className="h-3"/><Section title="משימות"><div className="space-y-2">{tasks.filter(t=>t.responsibleId===selectedPerson.id).map(t=><button key={t.id} onClick={()=>{setSelectedPerson(null);setSelectedTask(t)}} className="w-full bg-slate-50 p-3 rounded-xl text-right text-sm font-bold">{t.title}</button>)}{!tasks.some(t=>t.responsibleId===selectedPerson.id)&&<Empty text="אין משימות"/>}</div></Section>
+        <div className="h-3"/><Section title="נוכחות"><div className="space-y-2">{leaves.filter(l=>l.personId===selectedPerson.id).map(l=><div key={l.id} className="bg-slate-50 p-3 rounded-xl text-sm">{l.type} • {fmtDate(l.startDate)}–{fmtDate(l.endDate)}</div>)}{!leaves.some(l=>l.personId===selectedPerson.id)&&<Empty text="אין דיווחי נוכחות"/>}</div></Section>
       </div>}
 
-      {notificationsOpen&&<div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
+      {dutyFormOpen&&<Modal title="הוספת תורנות / שמירה" onClose={()=>setDutyFormOpen(false)}>
+        <div className="space-y-3">
+          <select value={dutyPersonId||selectedPerson?.id||''} onChange={e=>setDutyPersonId(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm">
+            <option value="">בחירת אדם</option>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <div className="grid grid-cols-3 gap-2">{(['תורנות','שמירה','סגירת שבת'] as DutyType[]).map(t=><button key={t} onClick={()=>setDutyType(t)} className={`py-2.5 rounded-xl text-xs font-bold ${dutyType===t?'bg-[#7047D7] text-white':'bg-slate-50 text-slate-500'}`}>{t}</button>)}</div>
+          <div className="grid grid-cols-2 gap-2"><div><div className="text-[10px] text-slate-400 mb-1">מתאריך</div><input type="date" value={dutyStartDate} onChange={e=>setDutyStartDate(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/></div><div><div className="text-[10px] text-slate-400 mb-1">עד תאריך</div><input type="date" value={dutyEndDate} onChange={e=>setDutyEndDate(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/></div></div>
+          {dutyType!=='סגירת שבת'&&<div className="grid grid-cols-2 gap-2"><input type="time" value={dutyStartTime} onChange={e=>setDutyStartTime(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/><input type="time" value={dutyEndTime} onChange={e=>setDutyEndTime(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/></div>}
+          <textarea value={dutyNote} onChange={e=>setDutyNote(e.target.value)} placeholder="הערה (אופציונלי)" className="w-full p-3 bg-slate-50 border rounded-2xl text-sm"/>
+          <button onClick={addDuty} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-bold">שמירה</button>
+        </div>
+      </Modal>}
+
+      {managementChatOpen&&<div className="fixed inset-0 z-50 bg-[#F8F6F2] max-w-[440px] mx-auto flex flex-col" dir="rtl">
+        <div className="p-4"><Top title="צ׳אט מפקדים" onClose={()=>setManagementChatOpen(false)}/></div>
+        <div className="px-4 pb-2"><div className="bg-[#EEE1FF] text-[#7047D7] rounded-2xl p-3 text-xs font-bold">💬 מקום להתייעצויות ועדכונים שלא קשורים לפריט מסוים</div></div>
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3">
+          {managementMessages.length?managementMessages.map(m=><div key={m.id} className={`flex gap-2 ${m.author===CURRENT_USER?'flex-row':'flex-row-reverse'}`}><img src={m.avatarUrl} className="w-8 h-8 rounded-full object-cover"/><div className={`max-w-[78%] p-3 rounded-2xl ${m.author===CURRENT_USER?'bg-[#7047D7] text-white':'bg-white border'}`}><div className="text-[10px] font-black opacity-75">{m.author}</div><div className="text-sm mt-0.5">{m.text}</div><div className="text-[8px] opacity-60 mt-1">{m.at}</div></div></div>):<Empty text="עוד אין הודעות. מישהי צריכה להתחיל 😌"/>}
+        </div>
+        <div className="p-4 bg-white border-t flex gap-2"><input value={managementText} onChange={e=>setManagementText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')sendManagementMessage()}} placeholder="כתיבת הודעה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={sendManagementMessage} className="w-12 rounded-2xl bg-[#7047D7] text-white flex items-center justify-center"><MessageCircle className="w-5 h-5"/></button></div>
+      </div>}
+
+      {notificationsOpen&&<div className="fixed inset-0 z-50 bg-[#F8F6F2] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl">
         <Top title="התראות" onClose={()=>setNotificationsOpen(false)}/>
-        <button onClick={()=>setNotifications(n=>n.map(x=>({...x,read:true})))} className="text-xs font-bold text-[#5B4B67] my-3">סימון הכל כנקרא</button>
+        <button onClick={()=>setNotifications(n=>n.map(x=>({...x,read:true})))} className="text-xs font-bold text-[#7047D7] my-3">סימון הכל כנקרא</button>
         <div className="space-y-2">{notifications.map(n=><button key={n.id} onClick={()=>{setNotifications(xs=>xs.map(x=>x.id===n.id?{...x,read:true}:x));setNotificationsOpen(false);setActiveTab(n.target)}} className={`w-full p-4 rounded-2xl border text-right ${n.read?'bg-white':'bg-purple-50 border-purple-100'}`}><div className="text-sm font-bold">{n.text}</div><div className="text-[10px] text-slate-400 mt-1">{n.at}</div></button>)}</div>
       </div>}
 
       {isEditingBanner&&<Modal title="עריכת הודעת הבאנר" onClose={()=>setIsEditingBanner(false)}>
         <input value={tempBannerInput} onChange={e=>setTempBannerInput(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-2xl text-sm" autoFocus/>
-        <button onClick={saveBanner} className="w-full bg-[#5B4B67] text-white p-3 rounded-2xl font-bold mt-3">שמור</button>
+        <button onClick={saveBanner} className="w-full bg-[#7047D7] text-white p-3 rounded-2xl font-bold mt-3">שמור</button>
       </Modal>}
     </div>
   </div>
 }
 
-function Header({title,subtitle,onBell,unread}:{title:string;subtitle:string;onBell:()=>void;unread:number}){
-  return <div className="flex items-center justify-between"><div><div className="flex items-center gap-1 text-xs font-semibold text-[#5B4B67]"><Sparkles className="w-3.5 h-3.5"/>היחידה שלנו</div><h1 className="text-2xl font-black mt-0.5">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={onBell} className="relative w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Bell className="w-4 h-4"/>{unread>0&&<span className="absolute -top-1 -left-1 bg-rose-500 text-white text-[9px] min-w-4 h-4 px-1 rounded-full">{unread}</span>}</button></div>
+
+function LeaveCalendar({month,selectedDay,leaves,onSelect,onPrev,onNext,onToday}:{month:Date;selectedDay:string;leaves:Leave[];onSelect:(d:string)=>void;onPrev:()=>void;onNext:()=>void;onToday:()=>void}){
+  const year=month.getFullYear(), mon=month.getMonth();
+  const first=new Date(year,mon,1);
+  const daysInMonth=new Date(year,mon+1,0).getDate();
+  const offset=first.getDay();
+  const cells:(number|null)[]=[...Array(offset).fill(null),...Array.from({length:daysInMonth},(_,i)=>i+1)];
+  while(cells.length%7) cells.push(null);
+  const iso=(day:number)=>`${year}-${String(mon+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const hasLeave=(day:number)=>leaves.some(l=>l.startDate<=iso(day)&&l.endDate>=iso(day));
+  const count=(day:number)=>leaves.filter(l=>l.startDate<=iso(day)&&l.endDate>=iso(day)).length;
+  const monthName=new Intl.DateTimeFormat('he-IL',{month:'long',year:'numeric'}).format(month);
+  const weekdays=['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+  return <div className="bg-white rounded-3xl p-4 border border-slate-100">
+    <div className="flex items-center justify-between mb-4">
+      <button onClick={onPrev} className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center"><ChevronRight className="w-4 h-4"/></button>
+      <div className="text-center"><div className="font-black text-sm">{monthName}</div><button onClick={onToday} className="text-[10px] text-[#7047D7] font-bold mt-0.5">חזרה להיום</button></div>
+      <button onClick={onNext} className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center"><ChevronLeft className="w-4 h-4"/></button>
+    </div>
+    <div className="grid grid-cols-7 gap-1 text-center mb-1">{weekdays.map(w=><div key={w} className="text-[10px] font-bold text-slate-400 py-1">{w}</div>)}</div>
+    <div className="grid grid-cols-7 gap-1">
+      {cells.map((day,i)=>day===null?<div key={i} className="aspect-square"/>:<button key={i} onClick={()=>onSelect(iso(day))} className={`relative aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-bold transition ${selectedDay===iso(day)?'bg-[#7047D7] text-white':'bg-[#F4F2EF] text-slate-700 active:bg-purple-50'}`}>
+        <span>{day}</span>
+        {hasLeave(day)&&<span className={`absolute bottom-1 min-w-1.5 h-1.5 px-0.5 rounded-full ${selectedDay===iso(day)?'bg-white':'bg-[#8BD7A2]'}`}>{count(day)>1?<span className="sr-only">{count(day)}</span>:null}</span>}
+      </button>)}
+    </div>
+    <div className="flex items-center justify-center gap-2 mt-3 text-[10px] text-slate-400"><span className="w-2 h-2 rounded-full bg-[#8BD7A2]"/><span>יש חופש ביום הזה</span></div>
+  </div>
 }
-function PageTitle({title,subtitle,action}:{title:string;subtitle:string;action:()=>void}){return <div className="flex items-center justify-between"><div><h1 className="text-2xl font-black">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={action} className="w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Plus className="w-5 h-5"/></button></div>}
-function Stat({title,value,icon,onClick,danger=false}:{title:string;value:number;icon:React.ReactNode;onClick:()=>void;danger?:boolean}){return <button onClick={onClick} className="bg-white p-4 rounded-3xl border text-right active:scale-[.98]"><div className="flex justify-between text-xs font-semibold text-slate-500"><span>{title}</span><span className={danger?'text-rose-600':'text-[#5B4B67]'}>{icon}</span></div><div className={`text-3xl font-black mt-2 ${danger?'text-rose-600':''}`}>{value}</div><div className="text-[10px] text-slate-400 mt-1">לחצי לצפייה</div></button>}
-function Section({title,action,onAction,children}:{title:string;action?:string;onAction?:()=>void;children:React.ReactNode}){return <div className="bg-white rounded-3xl p-5 border border-slate-100"><div className="flex justify-between mb-4"><h3 className="font-extrabold text-sm">{title}</h3>{action&&<button onClick={onAction} className="text-xs text-[#5B4B67] font-bold">{action}</button>}</div>{children}</div>}
+
+function Header({title,subtitle,onBell,unread}:{title:string;subtitle:string;onBell:()=>void;unread:number}){
+  return <div className="flex items-center justify-between"><div><div className="flex items-center gap-1 text-xs font-semibold text-[#7047D7]"><Sparkles className="w-3.5 h-3.5"/>היחידה שלנו</div><h1 className="text-[25px] font-black mt-0.5">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={onBell} className="relative w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Bell className="w-4 h-4"/>{unread>0&&<span className="absolute -top-1 -left-1 bg-rose-500 text-white text-[9px] min-w-4 h-4 px-1 rounded-full">{unread}</span>}</button></div>
+}
+function PageTitle({title,subtitle,action}:{title:string;subtitle:string;action:()=>void}){return <div className="flex items-center justify-between"><div><h1 className="text-[25px] font-black">{title}</h1><p className="text-xs text-slate-400">{subtitle}</p></div><button onClick={action} className="w-10 h-10 rounded-2xl bg-white border flex items-center justify-center"><Plus className="w-5 h-5"/></button></div>}
+function Stat({title,value,icon,onClick,danger=false}:{title:string;value:number;icon:React.ReactNode;onClick:()=>void;danger?:boolean}){
+  const palette = danger
+    ? 'from-[#FFE7E7] to-[#FFF1F1] text-[#C84343]'
+    : title.includes('מפקדים')
+      ? 'from-[#EFE4FF] to-[#F7F0FF] text-[#7047D7]'
+      : title.includes('חיילים')
+        ? 'from-[#DDF1FF] to-[#EDF8FF] text-[#287EB8]'
+        : 'from-[#DDF5E3] to-[#ECFAEF] text-[#27824A]';
+  return <button onClick={onClick} className={`bg-gradient-to-br ${palette} p-4 rounded-2xl text-right active:scale-[.98] shadow-sm min-h-[104px]`}>
+    <div className="flex items-start justify-between">
+      <div><div className="text-3xl font-black leading-none">{value}</div><div className="text-[11px] font-extrabold mt-2">{title}</div></div>
+      <span className="w-9 h-9 rounded-full bg-white/65 flex items-center justify-center [&>svg]:w-5 [&>svg]:h-5">{icon}</span>
+    </div>
+  </button>
+}
+function Section({title,action,onAction,children}:{title:string;action?:string;onAction?:()=>void;children:React.ReactNode}){return <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100/70"><div className="flex justify-between mb-4"><h3 className="font-extrabold text-sm">{title}</h3>{action&&<button onClick={onAction} className="text-xs text-[#7047D7] font-bold">{action}</button>}</div>{children}</div>}
 function Empty({text}:{text:string}){return <div className="text-xs text-slate-400 text-center py-4">{text}</div>}
-function Nav({active,icon,label,onClick}:{active:boolean;icon:React.ReactNode;label:string;onClick:()=>void}){return <button onClick={onClick} className={`flex flex-col items-center py-1 ${active?'text-[#5B4B67]':'text-slate-400'}`}><span className="[&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="text-[9px] mt-1 font-bold">{label}</span></button>}
+function Nav({active,icon,label,onClick}:{active:boolean;icon:React.ReactNode;label:string;onClick:()=>void}){return <button onClick={onClick} className={`flex flex-col items-center py-1 ${active?'text-[#7047D7]':'text-slate-400'}`}><span className="[&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="text-[9px] mt-1 font-bold">{label}</span></button>}
 function Modal({title,onClose,children}:{title:string;onClose:()=>void;children:React.ReactNode}){return <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" dir="rtl"><div className="w-full max-w-[380px] bg-white rounded-3xl p-5 max-h-[88vh] overflow-y-auto"><div className="flex justify-between mb-4"><button onClick={onClose}><X className="w-5 h-5 text-slate-400"/></button><h3 className="font-extrabold">{title}</h3><span className="w-5"/></div>{children}</div></div>}
-function Action({icon,title,onClick}:{icon:React.ReactNode;title:string;onClick:()=>void}){return <button onClick={onClick} className="w-full bg-slate-50 p-4 rounded-2xl flex gap-3 items-center mb-2"><span className="text-[#5B4B67] [&>svg]:w-5 [&>svg]:h-5">{icon}</span><span className="font-extrabold text-sm">{title}</span></button>}
+function Action({icon,title,onClick}:{icon:React.ReactNode;title:string;onClick:()=>void}){
+  const style=title.includes('משימה')?'from-[#EEE1FF] to-[#F7EFFF] text-[#7047D7]':title.includes('חופ')?'from-[#DDF5E3] to-[#EEFAF1] text-[#25834B]':title.includes('לו״ז')?'from-[#DDEFFF] to-[#EEF7FF] text-[#277DB7]':'from-[#FFF0D8] to-[#FFF7E9] text-[#B87318]';
+  return <button onClick={onClick} className={`w-full bg-gradient-to-br ${style} p-5 rounded-2xl flex gap-4 items-center mb-3 min-h-[90px]`}>
+    <span className="w-12 h-12 rounded-2xl bg-white/65 flex items-center justify-center [&>svg]:w-6 [&>svg]:h-6">{icon}</span>
+    <span className="font-black text-base">{title}</span>
+  </button>
+}
 function Top({title,onClose}:{title:string;onClose:()=>void}){return <div className="flex items-center justify-between"><button onClick={onClose} className="w-10 h-10 bg-white border rounded-2xl flex items-center justify-center"><ChevronRight className="w-5 h-5"/></button><h2 className="font-extrabold">{title}</h2><span className="w-10"/></div>}
 function Info({label,value}:{label:string;value:string}){return <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl my-1"><div className="text-[10px] text-slate-400 font-bold">{label}</div><div className="text-sm font-extrabold mt-0.5">{value}</div></div>}
 
 function Detail({title,onClose,onEdit,onDelete,meta,comments,audit,comment,setComment,onComment,children}:{title:string;onClose:()=>void;onEdit:()=>void;onDelete:()=>void;meta:string;comments:Comment[];audit:Audit[];comment:string;setComment:(x:string)=>void;onComment:()=>void;children:React.ReactNode}){
-  return <div className="fixed inset-0 z-50 bg-[#FAF9F6] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl"><Top title={title} onClose={onClose}/><div className="space-y-3 mt-4"><div className="bg-white p-4 rounded-3xl border space-y-2">{children}<div className="text-[10px] text-slate-400 pt-2">{meta}</div></div><div className="flex gap-2"><button onClick={onEdit} className="flex-1 bg-[#5B4B67] text-white p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Pencil className="w-4 h-4"/>עריכה</button><button onClick={onDelete} className="px-4 bg-rose-50 text-rose-600 rounded-2xl"><Trash2 className="w-4 h-4"/></button></div><Section title="צ׳אט"><div className="space-y-2">{comments.map(c=><div key={c.id} className="bg-slate-50 p-3 rounded-2xl"><div className="text-xs font-extrabold">{c.author}</div><div className="text-sm mt-1">{c.text}</div><div className="text-[9px] text-slate-400 mt-1">{c.at}</div></div>)}<div className="flex gap-2"><input value={comment} onChange={e=>setComment(e.target.value)} placeholder="כתיבת תגובה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={onComment} className="bg-[#5B4B67] text-white px-4 rounded-2xl"><MessageCircle className="w-4 h-4"/></button></div></div></Section><Section title="היסטוריית פעילות"><div className="space-y-2">{audit.map(a=><div key={a.id} className="text-xs border-r-2 border-purple-200 pr-3"><b>{a.actor}</b> {a.text}<div className="text-[9px] text-slate-400">{a.at}</div></div>)}</div></Section></div></div>
+  return <div className="fixed inset-0 z-50 bg-[#F8F6F2] overflow-y-auto p-4 max-w-[440px] mx-auto" dir="rtl"><Top title={title} onClose={onClose}/><div className="space-y-3 mt-4"><div className="bg-white p-4 rounded-3xl border space-y-2">{children}<div className="text-[10px] text-slate-400 pt-2">{meta}</div></div><div className="flex gap-2"><button onClick={onEdit} className="flex-1 bg-[#7047D7] text-white p-3 rounded-2xl font-bold flex items-center justify-center gap-2"><Pencil className="w-4 h-4"/>עריכה</button><button onClick={onDelete} className="px-4 bg-[#FFE8E8] text-[#C84242] rounded-2xl"><Trash2 className="w-4 h-4"/></button></div><Section title="צ׳אט"><div className="space-y-2">{comments.map(c=><div key={c.id} className="bg-slate-50 p-3 rounded-2xl"><div className="text-xs font-extrabold">{c.author}</div><div className="text-sm mt-1">{c.text}</div><div className="text-[9px] text-slate-400 mt-1">{c.at}</div></div>)}<div className="flex gap-2"><input value={comment} onChange={e=>setComment(e.target.value)} placeholder="כתיבת תגובה..." className="flex-1 bg-slate-50 border rounded-2xl p-3 text-sm"/><button onClick={onComment} className="bg-[#7047D7] text-white px-4 rounded-2xl"><MessageCircle className="w-4 h-4"/></button></div></div></Section><Section title="היסטוריית פעילות"><div className="space-y-2">{audit.map(a=><div key={a.id} className="text-xs border-r-2 border-purple-200 pr-3"><b>{a.actor}</b> {a.text}<div className="text-[9px] text-slate-400">{a.at}</div></div>)}</div></Section></div></div>
 }
 
-function Editor({type,editingId,people,tasks,leaves,events,onClose,onPerson,onTask,onLeave,onEvent}:{type:'task'|'leave'|'event'|'person';editingId:string|null;people:Person[];tasks:Task[];leaves:Leave[];events:ScheduleEvent[];onClose:()=>void;onPerson:(p:Person,e:boolean)=>void;onTask:(t:Task,e:boolean)=>void;onLeave:(l:Leave,e:boolean)=>void;onEvent:(ev:ScheduleEvent,e:boolean)=>void}){
+function Editor({type,editingId,people,tasks,leaves,events,avatarLibrary,setAvatarLibrary,onClose,onPerson,onTask,onLeave,onEvent}:{type:'task'|'leave'|'event'|'person';editingId:string|null;people:Person[];tasks:Task[];leaves:Leave[];events:ScheduleEvent[];avatarLibrary:AvatarLibraryItem[];setAvatarLibrary:React.Dispatch<React.SetStateAction<AvatarLibraryItem[]>>;onClose:()=>void;onPerson:(p:Person,e:boolean)=>void;onTask:(t:Task,e:boolean)=>void;onLeave:(l:Leave,e:boolean)=>void;onEvent:(ev:ScheduleEvent,e:boolean)=>void}){
   const old:any = type==='task'?tasks.find(x=>x.id===editingId):type==='leave'?leaves.find(x=>x.id===editingId):type==='event'?events.find(x=>x.id===editingId):people.find(x=>x.id===editingId);
   const [f,setF]=useState<any>(old||{});
   const set=(k:string,v:any)=>setF((x:any)=>({...x,[k]:v}));
+  const uploadAvatar=(file?:File)=>{
+    if(!file) return;
+    if(!file.type.startsWith('image/')) return alert('צריך לבחור קובץ תמונה');
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const image=new Image();
+      image.onload=()=>{
+        const size=360, canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+        const ctx=canvas.getContext('2d'); if(!ctx)return;
+        const scale=Math.max(size/image.width,size/image.height), w=image.width*scale, h=image.height*scale;
+        ctx.drawImage(image,(size-w)/2,(size-h)/2,w,h);
+        const src=canvas.toDataURL('image/jpeg',0.82);
+        const item={id:uid(),src,createdAt:nowText()};
+        const next=[item,...avatarLibrary];
+        setAvatarLibrary(next); set('avatarUrl',src);
+      };
+      image.src=String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+  const deleteAvatar=(id:string)=>{
+    const item=avatarLibrary.find(a=>a.id===id); if(!item||!confirm('למחוק את התמונה מהמאגר?'))return;
+    const next=avatarLibrary.filter(a=>a.id!==id); setAvatarLibrary(next);
+    if(f.avatarUrl===item.src)set('avatarUrl',DEFAULT_AVATAR);
+  };
   const input="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm";
   const save=()=>{
     const isEdit=!!old, at=nowText();
     if(type==='person'){
       if(!f.name?.trim())return alert('צריך להזין שם');
-      const p:Person={id:old?.id||uid(),name:f.name,rank:f.rank||'',role:f.role||'',category:f.category||'soldier',phone:f.phone||'',notes:f.notes||'',avatarUrl:f.avatarUrl||'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop&crop=face',active:f.active??true};onPerson(p,isEdit);
+      const p:Person={id:old?.id||uid(),name:f.name,category:f.category||'soldier',notes:f.notes||'',avatarUrl:f.avatarUrl||DEFAULT_AVATAR,active:f.active??true};onPerson(p,isEdit);
     }
     if(type==='task'){
       if(!f.title?.trim())return alert('צריך להזין שם משימה'); const p=people.find(x=>x.id===f.responsibleId)||people[0];
-      const t:Task={id:old?.id||uid(),title:f.title,dueDate:f.dueDate||todayISO(),dueTime:f.dueTime||'',responsibleId:p?.id||'',responsibleName:p?.name||'',avatarUrl:p?.avatarUrl||'',imageUrl:f.imageUrl||'',status:f.status||'open',description:f.description||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את המשימה':'יצרה את המשימה',at}]};onTask(t,isEdit);
+      const t:Task={id:old?.id||uid(),title:f.title,dueDate:f.dueDate||todayISO(),dueTime:f.dueTime||'',responsibleId:p?.id||'',responsibleName:p?.name||'',avatarUrl:p?.avatarUrl||'',imageUrl:f.imageUrl||'',status:f.status||'open',kind:f.kind||'regular',description:f.description||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את המשימה':'יצרה את המשימה',at}]};onTask(t,isEdit);
     }
     if(type==='leave'){
       const p=people.find(x=>x.id===f.personId)||people[0]; if(!p)return alert('צריך להוסיף אדם קודם');
-      const l:Leave={id:old?.id||uid(),personId:p.id,name:p.name,type:f.type||'חופש',startDate:f.startDate||todayISO(),endDate:f.endDate||todayISO(),avatarUrl:p.avatarUrl,category:p.category,note:f.note||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את החופש':'הוסיפה חופש',at}]};onLeave(l,isEdit);
+      const l:Leave={id:old?.id||uid(),personId:p.id,name:p.name,type:f.type||'חופש',startDate:f.startDate||todayISO(),endDate:f.endDate||todayISO(),avatarUrl:p.avatarUrl,category:p.category,note:f.note||'',createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את הנוכחות':'הוסיפה דיווח נוכחות',at}]};onLeave(l,isEdit);
     }
     if(type==='event'){
       if(!f.title?.trim())return alert('צריך להזין כותרת');
-      const e:ScheduleEvent={id:old?.id||uid(),title:f.title,date:f.date||todayISO(),time:f.time||'08:00',endTime:f.endTime||'09:00',description:f.description||'',personIds:f.personIds||[],createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את האירוע':'הוסיפה אירוע',at}]};onEvent(e,isEdit);
+      const startTime=f.time||'08:00'; const rawEnd=f.endTime||''; const safeEnd=!rawEnd || rawEnd<=startTime ? addOneHour(startTime) : rawEnd; const e:ScheduleEvent={id:old?.id||uid(),title:f.title,date:f.date||todayISO(),time:startTime,endTime:safeEnd,description:f.description||'',personIds:f.personIds||[],repeatFrequency:f.repeatFrequency||'none',repeatUntil:f.repeatFrequency&&f.repeatFrequency!=='none'?(f.repeatUntil||''):'' ,createdBy:old?.createdBy||CURRENT_USER,createdAt:old?.createdAt||at,updatedBy:CURRENT_USER,updatedAt:at,comments:old?.comments||[],audit:[...(old?.audit||[]),{id:uid(),actor:CURRENT_USER,text:isEdit?'ערכה את האירוע':'הוסיפה אירוע',at}]};onEvent(e,isEdit);
     }
     onClose();
   };
-  return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'חופש':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
-    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><input className={input} placeholder="דרגה" value={f.rank||''} onChange={e=>set('rank',e.target.value)}/><input className={input} placeholder="תפקיד" value={f.role||''} onChange={e=>set('role',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option></select><input className={input} placeholder="טלפון" value={f.phone||''} onChange={e=>set('phone',e.target.value)}/><textarea className={input} placeholder="הערות" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
-    {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.rank} {p.name}</option>)}</select><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/><select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
-    {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.rank} {p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
-    {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
-    <button onClick={save} className="w-full bg-[#5B4B67] text-white p-3.5 rounded-2xl font-bold flex justify-center items-center gap-2"><Save className="w-4 h-4"/>שמירה</button>
+  return <Modal title={`${editingId?'עריכת':'הוספת'} ${type==='task'?'משימה':type==='leave'?'נוכחות':type==='event'?'אירוע':'אדם'}`} onClose={onClose}><div className="space-y-3">
+    {type==='person'&&<><input className={input} placeholder="שם" value={f.name||''} onChange={e=>set('name',e.target.value)}/><select className={input} value={f.category||'soldier'} onChange={e=>set('category',e.target.value)}><option value="soldier">חייל/ת</option><option value="commander">מפקד/ת</option><option value="reserve">מילואים</option></select><div><div className="text-xs font-extrabold mb-2">תמונה / אווטאר</div>
+      <label className="w-full border-2 border-dashed border-[#CDBCF5] bg-[#F6F0FF] text-[#7047D7] rounded-2xl p-4 flex items-center justify-center gap-2 font-extrabold text-sm cursor-pointer active:scale-[.99]"><Plus className="w-4 h-4"/>העלאת תמונה למאגר<input type="file" accept="image/*" className="hidden" onChange={e=>{uploadAvatar(e.target.files?.[0]);e.currentTarget.value=''}}/></label>
+      <div className="text-[10px] text-slate-400 mt-1 mb-2">התמונה נחתכת אוטומטית לריבוע ונשמרת במאגר המשותף.</div>
+      {avatarLibrary.length>0?<div className="grid grid-cols-4 gap-2 max-h-56 overflow-y-auto bg-[#F8F6F2] p-2 rounded-2xl border border-slate-100">{avatarLibrary.map(a=><div key={a.id} className="relative"><button type="button" onClick={()=>set('avatarUrl',a.src)} className={`w-full aspect-square rounded-2xl overflow-hidden border-2 transition ${f.avatarUrl===a.src?'border-[#7047D7] ring-2 ring-[#7047D7]/20':'border-transparent'}`}><img src={a.src} className="w-full h-full object-cover"/>{f.avatarUrl===a.src&&<span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#7047D7] text-white flex items-center justify-center"><Check className="w-3 h-3"/></span>}</button><button type="button" onClick={()=>deleteAvatar(a.id)} className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white border shadow text-rose-500 flex items-center justify-center"><X className="w-3 h-3"/></button></div>)}</div>:<div className="bg-slate-50 rounded-2xl p-4 text-center text-xs text-slate-400">המאגר עדיין ריק — העלי תמונה ראשונה 💜</div>}
+      </div><textarea className={input} placeholder="הערות (אופציונלי)" value={f.notes||''} onChange={e=>set('notes',e.target.value)}/></>}
+    {type==='task'&&<><input className={input} placeholder="שם המשימה" value={f.title||''} onChange={e=>set('title',e.target.value)}/><textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/><select className={input} value={f.responsibleId||people[0]?.id||''} onChange={e=>set('responsibleId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.kind||'regular'} onChange={e=>set('kind',e.target.value)}><option value="regular">משימה רגילה</option><option value="ongoing">משימה שוטפת</option></select>{(f.kind||'regular')==='regular'&&<div className="grid grid-cols-2 gap-2"><input type="date" className={input} value={f.dueDate||todayISO()} onChange={e=>set('dueDate',e.target.value)}/><input type="time" className={input} value={f.dueTime||''} onChange={e=>set('dueTime',e.target.value)}/></div>}<select className={input} value={f.status||'open'} onChange={e=>set('status',e.target.value)}><option value="open">פתוחה</option><option value="in_progress">בביצוע</option><option value="completed">הושלמה</option><option value="overdue">באיחור</option></select><input className={input} placeholder="קישור לתמונה (זמני עד Firebase)" value={f.imageUrl||''} onChange={e=>set('imageUrl',e.target.value)}/></>}
+    {type==='leave'&&<><select className={input} value={f.personId||people[0]?.id||''} onChange={e=>set('personId',e.target.value)}>{people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className={input} value={f.type||'חופש'} onChange={e=>set('type',e.target.value)}><option>חופש</option><option>גימלים</option><option>קורס</option><option>אפטר</option><option>תמ״ל</option><option>לימודים</option><option>הפניה</option></select><input type="date" className={input} value={f.startDate||todayISO()} onChange={e=>set('startDate',e.target.value)}/><input type="date" className={input} value={f.endDate||todayISO()} onChange={e=>set('endDate',e.target.value)}/><textarea className={input} placeholder="הערה" value={f.note||''} onChange={e=>set('note',e.target.value)}/></>}
+    {type==='event'&&<><input className={input} placeholder="כותרת האירוע" value={f.title||''} onChange={e=>set('title',e.target.value)}/><input type="date" className={input} value={f.date||todayISO()} onChange={e=>set('date',e.target.value)}/><div className="grid grid-cols-2 gap-2"><input type="time" className={input} value={f.time||'08:00'} onChange={e=>set('time',e.target.value)}/><input type="time" className={input} value={f.endTime||'09:00'} onChange={e=>set('endTime',e.target.value)}/></div><select className={input} value={f.repeatFrequency||'none'} onChange={e=>set('repeatFrequency',e.target.value)}><option value="none">אירוע חד־פעמי</option><option value="daily">חוזר כל יום</option><option value="weekly">חוזר כל שבוע</option><option value="biweekly">חוזר כל שבועיים</option><option value="monthly">חוזר כל חודש</option></select>{(f.repeatFrequency&&f.repeatFrequency!=='none')&&<div><div className="text-xs font-bold mb-1">חוזר עד (אופציונלי)</div><input type="date" className={input} min={f.date||todayISO()} value={f.repeatUntil||''} onChange={e=>set('repeatUntil',e.target.value)}/></div>}<textarea className={input} placeholder="פירוט" value={f.description||''} onChange={e=>set('description',e.target.value)}/></>}
+    <button onClick={save} className="w-full bg-[#7047D7] text-white p-3.5 rounded-2xl font-bold flex justify-center items-center gap-2"><Save className="w-4 h-4"/>שמירה</button>
   </div></Modal>
+}
+
+
+class AppErrorBoundary extends React.Component<{children:React.ReactNode},{error:string}> {
+  state = { error: '' };
+  static getDerivedStateFromError(error:any){ return { error: error?.message || String(error) }; }
+  componentDidCatch(error:any, info:any){ console.error('App render error', error, info); }
+  render(){
+    if(this.state.error) return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] p-6 font-sans flex items-center justify-center"><div className="max-w-sm w-full bg-white rounded-3xl border p-5 shadow"><h1 className="font-black text-xl mb-2">האתר נתקל בשגיאה</h1><p className="text-sm text-slate-500 mb-3">לא איבדת שום מידע. צלמי לי את ההודעה הזאת.</p><pre className="text-xs whitespace-pre-wrap bg-slate-50 p-3 rounded-2xl text-rose-600">{this.state.error}</pre><button onClick={()=>location.reload()} className="w-full mt-4 bg-[#7047D7] text-white p-3 rounded-2xl font-black">רענון</button></div></div>;
+    return this.props.children;
+  }
+}
+
+export default function App(){
+  return <AppErrorBoundary><AppCore/></AppErrorBoundary>;
 }
