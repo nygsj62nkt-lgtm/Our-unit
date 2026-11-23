@@ -106,7 +106,6 @@ export interface ScheduleEvent {
   endTime: string;
   description?: string;
   personIds: string[];
-  isUnitWide?: boolean;
   repeatFrequency?: RepeatFrequency;
   repeatUntil?: string;
   createdBy: string;
