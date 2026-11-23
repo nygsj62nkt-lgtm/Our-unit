@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDocExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isCommander() {
+      return userDocExists() && userData().role == 'commander' && userData().active == true;
+    }
+
+    function isActiveUser() {
+      return isCommander() || isSoldier();
+    }
+
+    function isSoldier() {
+      return userDocExists() && userData().role == 'soldier' && userData().active != false;
+    }
+
+    function myPersonId() {
+      return userDocExists() ? userData().personId : '';
+    }
+
+    match /users/{uid} {
+      allow read: if isCommander() || (isSignedIn() && request.auth.uid == uid);
+      // Self-registration is a pending, inactive soldier with no linked person.
+      // A client must never be able to promote or activate its own account.
+      allow create: if isCommander() || (
+        isSignedIn() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'personId', 'active', 'createdAt']) &&
+        request.resource.data.uid == uid &&
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.role == 'soldier' &&
+        request.resource.data.personId == '' &&
+        request.resource.data.active == false
+      );
+      allow update, delete: if isCommander();
+    }
+
+    match /people/{personId} {
+      allow read: if isActiveUser();
+      allow write: if isCommander();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isActiveUser();
+      allow write: if isCommander();
+    }
+
+    match /phoneShifts/{shiftId} {
+      allow read: if isActiveUser();
+      allow write: if isCommander();
+    }
+
+    match /leaves/{leaveId} {
+      allow read: if isCommander() || (isSoldier() && resource.data.personId == myPersonId());
+      allow create, update: if isCommander();
+      allow delete: if isCommander();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isCommander() || (isSoldier() && resource.data.responsibleId == myPersonId());
+      allow create, delete: if isCommander();
+      allow update: if isCommander() || (
+        isSoldier() &&
+        resource.data.responsibleId == myPersonId() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedBy', 'updatedAt', 'audit', 'rejectionReason']) &&
+        request.resource.data.status in ['in_progress', 'pending_approval'] &&
+        (
+          (resource.data.status == 'open' && request.resource.data.status == 'in_progress') ||
+          (resource.data.status == 'in_progress' && request.resource.data.status == 'pending_approval')
+        ) &&
+        request.resource.data.audit is list &&
+        resource.data.audit is list &&
+        request.resource.data.audit.size() == resource.data.audit.size() + 1 &&
+        request.resource.data.audit[resource.data.audit.size()].actorUid == request.auth.uid &&
+        request.resource.data.audit[resource.data.audit.size()].action == request.resource.data.status &&
+        request.resource.data.get('rejectionReason', '') == ''
+      );
+    }
+
+    match /events/{eventId} {
+      allow read: if isActiveUser();
+      allow write: if isCommander();
+    }
+
+    match /duties/{dutyId} {
+      allow read: if isCommander() || (isSoldier() && resource.data.personId == myPersonId());
+      allow write: if isCommander();
+    }
+
+    match /managementMessages/{msgId} {
+      allow read, write: if isCommander();
+    }
+
+    match /notifications/{notifId} {
+      allow read: if isCommander() || (isSoldier() && (resource.data.targetPersonId == myPersonId() || resource.data.targetPersonId == 'all'));
+      allow create: if isCommander();
+      allow update: if isCommander() || (
+        isSoldier() && resource.data.targetPersonId == myPersonId() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+      );
+      allow delete: if isCommander();
+    }
+
+    match /pushTokens/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /pushEvents/{eventId} {
+      allow create: if isCommander();
+      allow read, update, delete: if isCommander();
+    }
+
+    match /appState/{docId} {
+      allow read, write: if isCommander();
+    }
+
+    match /backups/{backupId} {
+      allow read, write: if isCommander();
+    }
+  }
+}
