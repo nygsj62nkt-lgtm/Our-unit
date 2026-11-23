@@ -2738,7 +2738,8 @@ function Editor({
         time: startTime,
         endTime: safeEnd,
         description: f.description || '',
-        personIds: f.personIds || [],
+        personIds: f.isUnitWide ? [] : (f.personIds || []),
+        isUnitWide: Boolean(f.isUnitWide),
         repeatFrequency: f.repeatFrequency || 'none',
         repeatUntil: f.repeatFrequency && f.repeatFrequency !== 'none' ? f.repeatUntil || '' : '',
         createdBy: old?.createdBy || currentUserName,
@@ -2952,6 +2953,44 @@ function Editor({
                 />
               </div>
             )}
+            <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3 space-y-3">
+              <div className="text-sm font-bold text-slate-800">שיוך האירוע</div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(f.isUnitWide)}
+                  onChange={(e) => setF((prev: any) => ({
+                    ...prev,
+                    isUnitWide: e.target.checked,
+                    personIds: e.target.checked ? [] : prev.personIds || []
+                  }))}
+                />
+                אירוע כלל־יחידתי (יופיע בלוח האישי של כולם)
+              </label>
+              {!f.isUnitWide && (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-600">בחרי את אנשי הצוות שהאירוע שייך אליהם:</div>
+                  <div className="max-h-44 overflow-y-auto space-y-1 rounded-xl bg-white p-2 border border-slate-200">
+                    {people.filter((p) => p.active || (f.personIds || []).includes(p.id)).map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 p-1.5 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(f.personIds || []).includes(p.id)}
+                          onChange={(e) => set('personIds', e.target.checked
+                            ? [...new Set([...(f.personIds || []), p.id])]
+                            : (f.personIds || []).filter((id: string) => id !== p.id))}
+                        />
+                        <span>{p.name}</span>
+                      </label>
+                    ))}
+                    {people.length === 0 && <div className="text-xs text-slate-400">אין אנשי צוות לשיוך</div>}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    אירוע ללא שיוך לא יוצג באזור האישי של חיילים.
+                  </div>
+                </div>
+              )}
+            </div>
             <textarea className={input} placeholder="פירוט" value={f.description || ''} onChange={(e) => set('description', e.target.value)} />
           </>
         )}
