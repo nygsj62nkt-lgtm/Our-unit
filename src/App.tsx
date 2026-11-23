@@ -253,9 +253,13 @@ function AppCore() {
       )
     );
 
+    const eventsQuery = roleIsCommander
+      ? collection(db, 'events')
+      : query(collection(db, 'events'), where('personIds', 'array-contains', personId || '__unassigned__'));
+
     unsubs.push(
       onSnapshot(
-        collection(db, 'events'),
+        eventsQuery,
         (snap) => {
           const list = snap.docs.map((d) => ({ ...(d.data() as ScheduleEvent), id: d.id }));
           setEvents(list);
@@ -511,7 +515,8 @@ function AppCore() {
   });
 
   const unread = notifications.filter((n) => !n.read).length;
-  const todayEvents = events
+  const visibleEvents = isCommander ? events : events.filter((e) => Boolean(myPersonId) && (e.personIds || []).includes(myPersonId));
+  const todayEvents = visibleEvents
     .filter((e) => eventOccursOn(e, today))
     .sort((a, b) => a.time.localeCompare(b.time));
 
@@ -1374,7 +1379,7 @@ function AppCore() {
                     className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"
                   />
                   <div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-3">
-                    {events
+                    {visibleEvents
                       .filter((e) => eventOccursOn(e, selectedDay))
                       .sort((a, b) => a.time.localeCompare(b.time))
                       .map((e) => (
@@ -1403,7 +1408,7 @@ function AppCore() {
                           <div className="text-[10px] text-slate-500 mt-1">נוסף ע״י {e.createdBy}</div>
                         </button>
                       ))}
-                    {!events.some((e) => eventOccursOn(e, selectedDay)) && (
+                    {!visibleEvents.some((e) => eventOccursOn(e, selectedDay)) && (
                       <Empty text="אין אירועים בתאריך הזה" />
                     )}
                   </div>
@@ -1412,7 +1417,7 @@ function AppCore() {
                 <div className="space-y-3">
                   {Array.from({ length: 7 }, (_, i) => addDaysISO(startOfWeekISO(selectedDay), i)).map(
                     (day) => {
-                      const dayEvents = events
+                      const dayEvents = visibleEvents
                         .filter((e) => eventOccursOn(e, day))
                         .sort((a, b) => a.time.localeCompare(b.time));
                       return (
@@ -2738,8 +2743,7 @@ function Editor({
         time: startTime,
         endTime: safeEnd,
         description: f.description || '',
-        personIds: f.isUnitWide ? [] : (f.personIds || []),
-        isUnitWide: Boolean(f.isUnitWide),
+        personIds: f.personIds || [],
         repeatFrequency: f.repeatFrequency || 'none',
         repeatUntil: f.repeatFrequency && f.repeatFrequency !== 'none' ? f.repeatUntil || '' : '',
         createdBy: old?.createdBy || currentUserName,
@@ -2955,19 +2959,6 @@ function Editor({
             )}
             <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3 space-y-3">
               <div className="text-sm font-bold text-slate-800">שיוך האירוע</div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={Boolean(f.isUnitWide)}
-                  onChange={(e) => setF((prev: any) => ({
-                    ...prev,
-                    isUnitWide: e.target.checked,
-                    personIds: e.target.checked ? [] : prev.personIds || []
-                  }))}
-                />
-                אירוע כלל־יחידתי (יופיע בלוח האישי של כולם)
-              </label>
-              {!f.isUnitWide && (
                 <div className="space-y-2">
                   <div className="text-xs text-slate-600">בחרי את אנשי הצוות שהאירוע שייך אליהם:</div>
                   <div className="max-h-44 overflow-y-auto space-y-1 rounded-xl bg-white p-2 border border-slate-200">
@@ -2989,7 +2980,7 @@ function Editor({
                     אירוע ללא שיוך לא יוצג באזור האישי של חיילים.
                   </div>
                 </div>
-              )}
+
             </div>
             <textarea className={input} placeholder="פירוט" value={f.description || ''} onChange={(e) => set('description', e.target.value)} />
           </>
