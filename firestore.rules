@@ -90,7 +90,7 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      allow read: if isActiveUser();
+      allow read: if isCommander() || (isSoldier() && myPersonId() in resource.data.personIds);
       allow write: if isCommander();
     }
 
