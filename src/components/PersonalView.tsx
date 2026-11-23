@@ -330,7 +330,7 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
             const dayEvents = events.filter(
               (e) =>
                 eventOccursOn(e, day) &&
-                (!e.personIds || e.personIds.length === 0 || e.personIds.includes(myId))
+                (e.isUnitWide === true || (Boolean(myId) && (e.personIds || []).includes(myId)))
             );
             const dayDuties = duties.filter(
               (d) => d.active && d.personId === myId && d.startDate <= day && d.endDate >= day
