@@ -15,8 +15,6 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-  // If FCM already supplied a notification payload, the browser can display it.
-  // For data-only messages, display it ourselves.
   if (payload.notification) return;
   const title = payload.data?.title || 'היחידה שלנו';
   const body = payload.data?.body || payload.data?.text || 'יש עדכון חדש ביחידה';
