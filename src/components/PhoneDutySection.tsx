@@ -33,6 +33,7 @@ import {
 
 interface PhoneDutyProps {
   isCommander: boolean;
+  canAssignPhoneDuty?: boolean;
   myPersonId: string;
   currentUserName: string;
   people: Person[];
@@ -46,6 +47,7 @@ interface PhoneDutyProps {
 
 export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
   isCommander,
+  canAssignPhoneDuty = isCommander,
   myPersonId,
   currentUserName,
   people,
@@ -80,7 +82,7 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
   const activePeople = useMemo(() => people.filter((p) => p.active), [people]);
 
   const openSlotEditor = (slot: ResolvedPhoneSlot) => {
-    if (!isCommander) return;
+    if (!canAssignPhoneDuty) return;
     setEditingSlot(slot);
     setAssignPersonId(slot.personId || activePeople[0]?.id || '');
     const existing = slot.assignmentId
@@ -93,7 +95,7 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
   };
 
   const handleSaveSlot = async () => {
-    if (!editingSlot || !isCommander) return;
+    if (!editingSlot || !canAssignPhoneDuty) return;
     const person = activePeople.find((p) => p.id === assignPersonId);
     if (!person) return;
     const at = nowText();
@@ -225,12 +227,12 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <div
-          onClick={() => current && isCommander && openSlotEditor(current)}
+          onClick={() => current && canAssignPhoneDuty && openSlotEditor(current)}
           className={`rounded-2xl p-3 border transition ${
             isMyCurrent
               ? 'bg-gradient-to-br from-[#7047D7] to-[#5B35BC] text-white border-[#7047D7] shadow-md'
               : 'bg-gradient-to-br from-[#F7F3FF] to-[#EFE8FF] text-slate-800 border-[#E5D8FF]'
-          } ${current && isCommander ? 'cursor-pointer active:scale-[.99]' : ''}`}
+          } ${current && canAssignPhoneDuty ? 'cursor-pointer active:scale-[.99]' : ''}`}
         >
           <div className="flex items-center justify-between">
             <span
@@ -270,12 +272,12 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
         </div>
 
         <div
-          onClick={() => next && isCommander && openSlotEditor(next)}
+          onClick={() => next && canAssignPhoneDuty && openSlotEditor(next)}
           className={`rounded-2xl p-3 border transition ${
             isMyNext
               ? 'bg-amber-50 border-amber-300 text-slate-900 ring-2 ring-amber-200'
               : 'bg-slate-50 border-slate-100 text-slate-800'
-          } ${next && isCommander ? 'cursor-pointer active:scale-[.99]' : ''}`}
+          } ${next && canAssignPhoneDuty ? 'cursor-pointer active:scale-[.99]' : ''}`}
         >
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700">
@@ -369,14 +371,14 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
                         return (
                           <div
                             key={slot.slotKey}
-                            onClick={() => isCommander && openSlotEditor(slot)}
+                            onClick={() => canAssignPhoneDuty && openSlotEditor(slot)}
                             className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition ${
                               isMine
                                 ? 'bg-[#7047D7] text-white border-[#7047D7] shadow-sm'
                                 : slot.personName
                                 ? 'bg-white border-slate-200/80 text-slate-800'
                                 : 'bg-white/60 border-dashed border-slate-300 text-slate-500'
-                            } ${isCommander ? 'cursor-pointer hover:border-[#7047D7]' : ''}`}
+                            } ${canAssignPhoneDuty ? 'cursor-pointer hover:border-[#7047D7]' : ''}`}
                           >
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
@@ -405,11 +407,11 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
                                 )}
                               </div>
                               <div className="font-black text-xs mt-1 truncate">
-                                {slot.personName || (isCommander ? '+ שיבוץ כונן' : 'לא שובץ')}
+                                {slot.personName || (canAssignPhoneDuty ? '+ שיבוץ כונן' : 'לא שובץ')}
                               </div>
                             </div>
 
-                            {isCommander && (
+                            {canAssignPhoneDuty && (
                               <span
                                 className={`p-1.5 rounded-lg shrink-0 ${
                                   isMine
@@ -432,7 +434,7 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
         </div>
       )}
 
-      {editingSlot && isCommander && (
+      {editingSlot && canAssignPhoneDuty && (
         <div
           className="fixed inset-0 z-[70] bg-black/45 flex items-center justify-center p-4"
           dir="rtl"
@@ -564,7 +566,7 @@ export const PhoneDutyHomeCard: React.FC<PhoneDutyProps> = ({
                   שמירת שיבוץ
                 </button>
 
-                {editingSlot.assignmentId && (
+                {editingSlot.assignmentId && isCommander && (
                   <div className="pt-2 border-t border-slate-100 flex gap-2">
                     <button
                       type="button"
