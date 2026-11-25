@@ -1053,6 +1053,7 @@ function AppCore() {
 
               <PhoneDutyHomeCard
                 isCommander={isCommander}
+                canAssignPhoneDuty={isCommander || isSergeant}
                 myPersonId={myPersonId}
                 currentUserName={currentUserName}
                 people={people}
@@ -1061,7 +1062,7 @@ function AppCore() {
                 onSaveAssignment={savePhoneShiftDoc}
                 onDeleteAssignment={deletePhoneShiftDoc}
                 onSaveSettings={savePhoneDutySettingsDoc}
-                onNotify={(text, entityId) => notify(text, 'today', entityId)}
+                onNotify={(text, entityId) => { if (isCommander) notify(text, 'today', entityId); }}
               />
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
