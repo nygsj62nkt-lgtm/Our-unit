@@ -1,5 +1,5 @@
 export type Tab = 'today' | 'tasks' | 'leaves' | 'schedule' | 'people' | 'personal';
-export type UserRole = 'commander' | 'soldier';
+export type UserRole = 'commander' | 'sergeant' | 'soldier';
 export type Category = 'soldier' | 'commander' | 'reserve';
 
 export type TaskStatus = 'open' | 'in_progress' | 'pending_approval' | 'completed' | 'overdue';
@@ -41,6 +41,7 @@ export interface Person {
   id: string;
   name: string;
   category: Category;
+  role?: UserRole;
   notes: string;
   avatarUrl?: string;
   active: boolean;
