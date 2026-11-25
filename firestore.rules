@@ -85,7 +85,8 @@ service cloud.firestore {
 
     match /phoneShifts/{shiftId} {
       allow read: if isActiveUser();
-      allow write: if isCommander();
+      allow create, update: if isCommander() || isSergeant();
+      allow delete: if isCommander();
     }
 
     match /leaves/{leaveId} {
