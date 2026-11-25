@@ -18,16 +18,41 @@ service cloud.firestore {
       return userDocExists() && userData().role == 'commander' && userData().active == true;
     }
 
-    function isActiveUser() {
-      return isCommander() || isSoldier();
+    function isSergeant() {
+      return userDocExists() && userData().role == 'sergeant' && userData().active != false;
     }
 
     function isSoldier() {
       return userDocExists() && userData().role == 'soldier' && userData().active != false;
     }
 
+    function isActiveUser() {
+      return isCommander() || isSergeant() || isSoldier();
+    }
+
     function myPersonId() {
       return userDocExists() ? userData().personId : '';
+    }
+
+    // Checks actual effective role (via person.role if synced, and excludes commanders & sergeants)
+    // AND requires category in ['soldier', 'reserve'] for backward compatibility with existing docs.
+    function isTrueSoldierPerson(personId) {
+      return personId != '' &&
+        exists(/databases/$(database)/documents/people/$(personId)) &&
+        get(/databases/$(database)/documents/people/$(personId)).data.category in ['soldier', 'reserve'] &&
+        get(/databases/$(database)/documents/people/$(personId)).data.get('role', 'soldier') == 'soldier';
+    }
+
+    function isTaskAssignedToMe(taskId) {
+      return taskId != '' &&
+        exists(/databases/$(database)/documents/tasks/$(taskId)) &&
+        get(/databases/$(database)/documents/tasks/$(taskId)).data.responsibleId == myPersonId();
+    }
+
+    function isTaskForTrueSoldier(taskId) {
+      return taskId != '' &&
+        exists(/databases/$(database)/documents/tasks/$(taskId)) &&
+        isTrueSoldierPerson(get(/databases/$(database)/documents/tasks/$(taskId)).data.responsibleId);
     }
 
     match /users/{uid} {
@@ -47,6 +72,8 @@ service cloud.firestore {
     }
 
     match /people/{personId} {
+      // Only active users can read people; personal sensitive fields (email, phone, notes, uid)
+      // are stripped in the client for non-commanders.
       allow read: if isActiveUser();
       allow write: if isCommander();
     }
@@ -62,14 +89,30 @@ service cloud.firestore {
     }
 
     match /leaves/{leaveId} {
-      allow read: if isCommander() || (isSoldier() && resource.data.personId == myPersonId());
+      allow read: if isCommander() || isSergeant() || (isSoldier() && resource.data.personId == myPersonId());
       allow create, update: if isCommander();
       allow delete: if isCommander();
     }
 
     match /tasks/{taskId} {
-      allow read: if isCommander() || (isSoldier() && resource.data.responsibleId == myPersonId());
-      allow create, delete: if isCommander();
+      // Commander: all tasks
+      // Sergeant: tasks assigned to true soldiers ONLY (never commanders, never sergeants, not even other sergeants)
+      // Soldier: ONLY tasks assigned to themselves
+      allow read: if isCommander() ||
+        (isSergeant() && isTrueSoldierPerson(resource.data.responsibleId)) ||
+        (isSoldier() && resource.data.responsibleId == myPersonId());
+
+      // Commander can create any task; Sergeant can ONLY create tasks assigned to a true soldier
+      allow create: if isCommander() || (
+        isSergeant() &&
+        isTrueSoldierPerson(request.resource.data.responsibleId)
+      );
+
+      // Only Commander can delete tasks
+      allow delete: if isCommander();
+
+      // Sergeant CANNOT edit, close, or delete tasks (strictly create & assign to soldiers only).
+      // Soldier can only advance status of their own assigned task (open -> in_progress -> pending_approval).
       allow update: if isCommander() || (
         isSoldier() &&
         resource.data.responsibleId == myPersonId() &&
@@ -90,12 +133,12 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      allow read: if isCommander() || (isSoldier() && myPersonId() in resource.data.personIds);
+      allow read: if isCommander() || ((isSergeant() || isSoldier()) && myPersonId() in resource.data.personIds);
       allow write: if isCommander();
     }
 
     match /duties/{dutyId} {
-      allow read: if isCommander() || (isSoldier() && resource.data.personId == myPersonId());
+      allow read: if isCommander() || ((isSergeant() || isSoldier()) && resource.data.personId == myPersonId());
       allow write: if isCommander();
     }
 
@@ -104,12 +147,45 @@ service cloud.firestore {
     }
 
     match /notifications/{notifId} {
-      allow read: if isCommander() || (isSoldier() && (resource.data.targetPersonId == myPersonId() || resource.data.targetPersonId == 'all'));
-      allow create: if isCommander();
+      // Soldiers & Sergeants can ONLY read notifications explicitly targeted to their own myPersonId()
+      // (or general unit-wide broadcasts with targetPersonId == 'all' that are NOT tasks).
+      allow read: if isCommander() || (
+        (isSergeant() || isSoldier()) &&
+        (
+          (myPersonId() != '' && resource.data.targetPersonId == myPersonId()) ||
+          (resource.data.targetPersonId == 'all' && resource.data.target != 'tasks')
+        )
+      );
+
+      // Strict notification creation rules:
+      // - Commander: any notification
+      // - Sergeant: ONLY task notifications where entityId references an existing task assigned to a true soldier
+      //   AND targetPersonId matches that task's responsibleId
+      // - Soldier: ONLY task notifications where entityId references an existing task assigned to THEMSELVES (myPersonId())
+      //   AND targetPersonId == myPersonId() (so other soldiers NEVER receive it, and target cannot be spoofed)
+      allow create: if isCommander() || (
+        isSergeant() &&
+        request.resource.data.target == 'tasks' &&
+        request.resource.data.get('entityId', '') != '' &&
+        isTaskForTrueSoldier(request.resource.data.entityId) &&
+        request.resource.data.targetPersonId == get(/databases/$(database)/documents/tasks/$(request.resource.data.entityId)).data.responsibleId
+      ) || (
+        isSoldier() &&
+        myPersonId() != '' &&
+        request.resource.data.target == 'tasks' &&
+        request.resource.data.get('entityId', '') != '' &&
+        isTaskAssignedToMe(request.resource.data.entityId) &&
+        request.resource.data.targetPersonId == myPersonId()
+      );
+
+      // Recipient can only mark their own notification as read
       allow update: if isCommander() || (
-        isSoldier() && resource.data.targetPersonId == myPersonId() &&
+        (isSergeant() || isSoldier()) &&
+        myPersonId() != '' &&
+        resource.data.targetPersonId == myPersonId() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
       );
+
       allow delete: if isCommander();
     }
 
@@ -118,7 +194,18 @@ service cloud.firestore {
     }
 
     match /pushEvents/{eventId} {
-      allow create: if isCommander();
+      allow create: if isCommander() || (
+        isSergeant() &&
+        request.resource.data.target == 'tasks' &&
+        request.resource.data.get('entityId', '') != '' &&
+        isTaskForTrueSoldier(request.resource.data.entityId)
+      ) || (
+        isSoldier() &&
+        myPersonId() != '' &&
+        request.resource.data.target == 'tasks' &&
+        request.resource.data.get('entityId', '') != '' &&
+        isTaskAssignedToMe(request.resource.data.entityId)
+      );
       allow read, update, delete: if isCommander();
     }
 
