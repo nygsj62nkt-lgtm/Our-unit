@@ -62,7 +62,7 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
   const myId = profile.personId;
 
   const myTasks = useMemo(
-    () => tasks.filter((t) => t.responsibleId === myId),
+    () => (myId ? tasks.filter((t) => t.responsibleId === myId) : []),
     [tasks, myId]
   );
 
@@ -78,8 +78,7 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
 
   const myLeaves = useMemo(
     () =>
-      leaves
-        .filter((l) => l.personId === myId)
+      (myId ? leaves.filter((l) => l.personId === myId) : [])
         .sort((a, b) => b.startDate.localeCompare(a.startDate)),
     [leaves, myId]
   );
@@ -90,6 +89,7 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
   }, [weekAnchor]);
 
   const myUpcomingPhoneShifts = useMemo(() => {
+    if (!myId) return [];
     const today = todayISO();
     const list: Array<{
       date: string;
@@ -145,6 +145,15 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
 
   const displayName = person?.name || profile.displayName;
 
+  const roleLabel =
+    profile.role === 'commander'
+      ? 'מפקד/ת ביחידה'
+      : profile.role === 'sergeant'
+      ? 'סמל/ת ביחידה'
+      : person?.category === 'reserve'
+      ? 'משרת/ת מילואים'
+      : 'חייל/ת ביחידה';
+
   return (
     <div className="space-y-4">
       <div className="bg-gradient-to-l from-[#7047D7] to-[#5B35BC] text-white rounded-3xl p-5 shadow-md flex items-center justify-between gap-3">
@@ -155,13 +164,7 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
           <div className="min-w-0">
             <div className="text-[11px] font-bold text-white/80">האזור האישי שלי</div>
             <h1 className="text-xl font-black truncate">{displayName}</h1>
-            <div className="text-xs text-white/85 mt-0.5">
-              {profile.role === 'commander'
-                ? 'מפקד/ת ביחידה'
-                : person?.category === 'reserve'
-                ? 'משרת/ת מילואים'
-                : 'חייל/ת ביחידה'}
-            </div>
+            <div className="text-xs text-white/85 mt-0.5">{roleLabel}</div>
           </div>
         </div>
         {!myId && (
@@ -324,16 +327,24 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
         <div className="space-y-2">
           {weekDays.map((day) => {
             const dayLeaves = myLeaves.filter((l) => leaveOccursOn(l, day));
-            const dayPhones = resolvePhoneSlotsForDate(day, phoneSettings, phoneAssignments).filter(
-              (s) => s.personId === myId
-            );
+            const dayPhones = myId
+              ? resolvePhoneSlotsForDate(day, phoneSettings, phoneAssignments).filter(
+                  (s) => s.personId === myId
+                )
+              : [];
             const dayEvents = events.filter(
               (e) =>
                 eventOccursOn(e, day) &&
-                (Boolean(myId) && (e.personIds || []).includes(myId))
+                Boolean(myId) &&
+                (e.personIds || []).includes(myId)
             );
             const dayDuties = duties.filter(
-              (d) => d.active && d.personId === myId && d.startDate <= day && d.endDate >= day
+              (d) =>
+                d.active &&
+                Boolean(myId) &&
+                d.personId === myId &&
+                d.startDate <= day &&
+                d.endDate >= day
             );
 
             const hasItems =
@@ -368,7 +379,7 @@ export const PersonalView: React.FC<PersonalViewProps> = ({
                         onClick={() => onSelectLeave(l)}
                         className="text-xs font-bold bg-[#E0F5E5] text-[#277B47] px-2.5 py-1.5 rounded-xl cursor-pointer"
                       >
-                        נוכחות: {l.type}
+                        נוכחות / היעדרות: {l.type}
                         {l.type === 'הפניה' && l.referralTime ? ` • שעה ${l.referralTime}` : ''}
                       </div>
                     ))}
