@@ -24,7 +24,8 @@ import {
   Task,
   TaskKind,
   TaskStatus,
-  UserProfile
+  UserProfile,
+  UserRole
 } from './types';
 import {
   addDaysISO,
@@ -37,6 +38,7 @@ import {
   leaveOccursOn,
   nowText,
   repeatLabel,
+  resolvePhoneSlotsForDate,
   startOfWeekISO,
   todayISO,
   uid
@@ -168,6 +170,9 @@ function AppCore() {
   const [legacyNeedsMigration, setLegacyNeedsMigration] = useState(false);
 
   const isCommander = userProfile?.role === 'commander';
+  const isSergeant = userProfile?.role === 'sergeant';
+  const canViewAllPresence = isCommander || isSergeant;
+  const canCreateTasks = isCommander || isSergeant;
   const myPersonId = userProfile?.personId || '';
   const currentUserName = userProfile?.displayName || authUser?.displayName || authUser?.email?.split('@')[0] || 'משתמש/ת';
 
@@ -190,7 +195,7 @@ function AppCore() {
   }, []);
 
   useEffect(() => {
-    if (!authUser || !userProfile || !userProfile.active || (userProfile.role === 'soldier' && !userProfile.personId)) {
+    if (!authUser || !userProfile || !userProfile.active || ((userProfile.role === 'soldier' || userProfile.role === 'sergeant') && !userProfile.personId)) {
       setSyncReady(false);
       return;
     }
@@ -198,6 +203,7 @@ function AppCore() {
     const safetyTimer = window.setTimeout(() => setSyncReady(true), 4500);
     const unsubs: Array<() => void> = [];
     const roleIsCommander = userProfile.role === 'commander';
+    const roleIsSergeant = userProfile.role === 'sergeant';
     const personId = userProfile.personId;
 
     unsubs.push(
@@ -212,7 +218,19 @@ function AppCore() {
       onSnapshot(
         collection(db, 'people'),
         (snap) => {
-          const list = snap.docs.map((d) => ({ ...(d.data() as Person), id: d.id }));
+          const list = snap.docs.map((d) => {
+            const raw = { ...(d.data() as Person), id: d.id };
+            if (roleIsCommander || d.id === personId) return raw;
+            return {
+              id: raw.id,
+              name: raw.name,
+              category: raw.category,
+              role: raw.role,
+              notes: '',
+              avatarUrl: raw.avatarUrl,
+              active: raw.active
+            } as Person;
+          });
           setPeople(list);
           setSyncReady(true);
         },
@@ -223,22 +241,31 @@ function AppCore() {
       )
     );
 
-    const tasksQuery = roleIsCommander
-      ? collection(db, 'tasks')
-      : query(collection(db, 'tasks'), where('responsibleId', '==', personId || '__unassigned__'));
+    if (roleIsCommander) {
+      unsubs.push(
+        onSnapshot(
+          collection(db, 'tasks'),
+          (snap) => {
+            const list = snap.docs.map((d) => ({ ...(d.data() as Task), id: d.id }));
+            setTasks(list);
+          },
+          (err) => console.error('Tasks listener error', err)
+        )
+      );
+    } else if (!roleIsSergeant) {
+      unsubs.push(
+        onSnapshot(
+          query(collection(db, 'tasks'), where('responsibleId', '==', personId || '__unassigned__')),
+          (snap) => {
+            const list = snap.docs.map((d) => ({ ...(d.data() as Task), id: d.id }));
+            setTasks(list);
+          },
+          (err) => console.error('Tasks listener error', err)
+        )
+      );
+    }
 
-    unsubs.push(
-      onSnapshot(
-        tasksQuery,
-        (snap) => {
-          const list = snap.docs.map((d) => ({ ...(d.data() as Task), id: d.id }));
-          setTasks(list);
-        },
-        (err) => console.error('Tasks listener error', err)
-      )
-    );
-
-    const leavesQuery = roleIsCommander
+    const leavesQuery = (roleIsCommander || roleIsSergeant)
       ? collection(db, 'leaves')
       : query(collection(db, 'leaves'), where('personId', '==', personId || '__unassigned__'));
 
@@ -320,25 +347,54 @@ function AppCore() {
       )
     );
 
-    const notifQuery = roleIsCommander
-      ? collection(db, 'notifications')
-      : query(
+    if (roleIsCommander) {
+      unsubs.push(
+        onSnapshot(
           collection(db, 'notifications'),
-          where('targetPersonId', 'in', [personId || '__unassigned__', 'all'])
-        );
+          (snap) => {
+            const list = snap.docs
+              .map((d) => ({ ...(d.data() as NotificationItem), id: d.id }))
+              .sort((a, b) => b.id.localeCompare(a.id));
+            setNotifications(list);
+          },
+          (err) => console.error('Notifications error', err)
+        )
+      );
+    } else {
+      let personalNotifs: NotificationItem[] = [];
+      let generalNotifs: NotificationItem[] = [];
+      const syncMergedNotifs = () => {
+        const map = new Map<string, NotificationItem>();
+        [...personalNotifs, ...generalNotifs].forEach((n) => map.set(n.id, n));
+        setNotifications(Array.from(map.values()).sort((a, b) => b.id.localeCompare(a.id)));
+      };
 
-    unsubs.push(
-      onSnapshot(
-        notifQuery,
-        (snap) => {
-          const list = snap.docs
-            .map((d) => ({ ...(d.data() as NotificationItem), id: d.id }))
-            .sort((a, b) => b.id.localeCompare(a.id));
-          setNotifications(list);
-        },
-        (err) => console.error('Notifications error', err)
-      )
-    );
+      unsubs.push(
+        onSnapshot(
+          query(collection(db, 'notifications'), where('targetPersonId', '==', personId || '__unassigned__')),
+          (snap) => {
+            personalNotifs = snap.docs.map((d) => ({ ...(d.data() as NotificationItem), id: d.id }));
+            syncMergedNotifs();
+          },
+          (err) => console.error('Personal notifications error', err)
+        )
+      );
+
+      unsubs.push(
+        onSnapshot(
+          query(
+            collection(db, 'notifications'),
+            where('targetPersonId', '==', 'all'),
+            where('target', 'in', ['today', 'leaves', 'schedule', 'people', 'personal'])
+          ),
+          (snap) => {
+            generalNotifs = snap.docs.map((d) => ({ ...(d.data() as NotificationItem), id: d.id }));
+            syncMergedNotifs();
+          },
+          (err) => console.error('General notifications error', err)
+        )
+      );
+    }
 
     if (roleIsCommander) {
       unsubs.push(
@@ -390,6 +446,49 @@ function AppCore() {
       unsubs.forEach((fn) => fn());
     };
   }, [authUser, userProfile?.uid, userProfile?.role, userProfile?.personId]);
+
+
+  useEffect(() => {
+    if (!authUser || !userProfile || !userProfile.active || userProfile.role !== 'sergeant') {
+      return;
+    }
+    const trueSoldierIds = Array.from(
+      new Set(
+        people
+          .filter(
+            (p) =>
+              (p.category === 'soldier' || p.category === 'reserve') &&
+              (p.role ?? 'soldier') === 'soldier'
+          )
+          .map((p) => p.id)
+      )
+    );
+    if (trueSoldierIds.length === 0) {
+      setTasks([]);
+      return;
+    }
+    const chunks: string[][] = [];
+    for (let i = 0; i < trueSoldierIds.length; i += 30) {
+      chunks.push(trueSoldierIds.slice(i, i + 30));
+    }
+    const chunkMap = new Map<number, Task[]>();
+    const unsubs = chunks.map((chunk, idx) =>
+      onSnapshot(
+        query(collection(db, 'tasks'), where('responsibleId', 'in', chunk)),
+        (snap) => {
+          chunkMap.set(
+            idx,
+            snap.docs.map((d) => ({ ...(d.data() as Task), id: d.id }))
+          );
+          const merged: Task[] = [];
+          chunkMap.forEach((arr) => merged.push(...arr));
+          setTasks(merged);
+        },
+        (err) => console.error('Sergeant tasks listener error', err)
+      )
+    );
+    return () => unsubs.forEach((fn) => fn());
+  }, [authUser, userProfile?.uid, userProfile?.role, userProfile?.active, people]);
 
   const enablePush = async () => {
     if (!authUser) return;
@@ -464,7 +563,7 @@ function AppCore() {
     );
   }
 
-  if (authUser && userProfile && (!userProfile.active || (userProfile.role === 'soldier' && !userProfile.personId))) {
+  if (authUser && userProfile && (!userProfile.active || ((userProfile.role === 'soldier' || userProfile.role === 'sergeant') && !userProfile.personId))) {
     return <div dir="rtl" className="min-h-screen bg-[#F8F6F2] flex items-center justify-center p-5"><div className="max-w-sm bg-white p-6 rounded-3xl text-center"><h1 className="text-xl font-black mb-3">ממתינים לאישור גישה</h1><p className="text-sm mb-4">המשתמש נרשם בהצלחה. מפקד/ת צריכים לאשר ולשייך אותך לאדם ביחידה.</p><button className="bg-[#7047D7] text-white rounded-xl px-6 py-3" onClick={()=>signOut(auth)}>יציאה</button></div></div>;
   }
 
@@ -499,13 +598,29 @@ function AppCore() {
   const soldierOut = currentLeaves.filter((l) => l.category === 'soldier');
   const commanderOut = currentLeaves.filter((l) => l.category === 'commander');
 
-  const overdueTasks = tasks.filter(
+  const trueSoldierIds = new Set(
+    people
+      .filter(
+        (p) =>
+          (p.category === 'soldier' || p.category === 'reserve') &&
+          (p.role ?? 'soldier') === 'soldier'
+      )
+      .map((p) => p.id)
+  );
+
+  const visibleTasks = isCommander
+    ? tasks
+    : isSergeant
+    ? tasks.filter((t) => trueSoldierIds.has(t.responsibleId))
+    : tasks.filter((t) => Boolean(myPersonId) && t.responsibleId === myPersonId);
+
+  const overdueTasks = visibleTasks.filter(
     (t) => t.kind !== 'ongoing' && (t.status === 'overdue' || (t.status !== 'completed' && t.dueDate < today))
   );
-  const pendingApprovalTasks = tasks.filter((t) => t.status === 'pending_approval');
-  const openTasks = tasks.filter((t) => t.status !== 'completed');
+  const pendingApprovalTasks = visibleTasks.filter((t) => t.status === 'pending_approval');
+  const openTasks = visibleTasks.filter((t) => t.status !== 'completed');
 
-  const filteredTasks = tasks.filter((t) => {
+  const filteredTasks = visibleTasks.filter((t) => {
     if (taskFilter === 'all') return true;
     if (taskFilter === 'done') return t.status === 'completed';
     if (taskFilter === 'pending_approval') return t.status === 'pending_approval';
@@ -514,18 +629,26 @@ function AppCore() {
     return (t.status === 'open' || t.status === 'in_progress' || t.status === 'pending_approval') && t.kind !== 'ongoing';
   });
 
-  const unread = notifications.filter((n) => !n.read).length;
+  const visibleNotifications = isCommander
+    ? notifications
+    : notifications.filter(
+        (n) =>
+          (Boolean(myPersonId) && n.targetPersonId === myPersonId) ||
+          (n.targetPersonId === 'all' && n.target !== 'tasks')
+      );
+
+  const unread = visibleNotifications.filter((n) => !n.read).length;
   const visibleEvents = isCommander ? events : events.filter((e) => Boolean(myPersonId) && (e.personIds || []).includes(myPersonId));
   const todayEvents = visibleEvents
     .filter((e) => eventOccursOn(e, today))
     .sort((a, b) => a.time.localeCompare(b.time));
 
   const selectedDayLeaves = leaves.filter(
-    (l) => (isCommander ? l.category === leaveTab : l.personId === myPersonId) && leaveOccursOn(l, leaveSelectedDay)
+    (l) => (canViewAllPresence ? l.category === leaveTab : l.personId === myPersonId) && leaveOccursOn(l, leaveSelectedDay)
   );
 
   const visibleLeavesForHistory = leaves
-    .filter((l) => (isCommander ? l.category === leaveTab : l.personId === myPersonId))
+    .filter((l) => (canViewAllPresence ? l.category === leaveTab : l.personId === myPersonId))
     .filter((l) => {
       const isEnded =
         l.status === 'cancelled' ||
@@ -558,7 +681,7 @@ function AppCore() {
   };
 
   const openForm = (type: 'task' | 'leave' | 'event' | 'person', id?: string) => {
-    if (!isCommander) return;
+    if (!isCommander && !(isSergeant && type === 'task' && !id)) return;
     setFormType(type);
     setEditingId(id || null);
     setQuickAdd(false);
@@ -602,15 +725,17 @@ function AppCore() {
   };
 
   const handleSoldierStartTask = async (task: Task) => {
+    if (userProfile?.role !== 'soldier' || task.responsibleId !== myPersonId) return;
     await updateTaskLifecycle(task, 'in_progress', 'החל/ה בביצוע המשימה');
-    notify(`${currentUserName} החל/ה בביצוע: "${task.title}"`, 'tasks', task.id);
+    notify(`${currentUserName} החל/ה בביצוע: "${task.title}"`, 'tasks', task.id, myPersonId);
   };
 
   const handleSoldierSubmitForApproval = async (task: Task) => {
+    if (userProfile?.role !== 'soldier' || task.responsibleId !== myPersonId) return;
     await updateTaskLifecycle(task, 'pending_approval', 'סימנ/ה שסיים/ה לבצע ושלח/ה לאישור מפקד', {
       rejectionReason: ''
     });
-    notify(`${currentUserName} סיים/ה משימה וממתינ/ה לאישור מפקד: "${task.title}"`, 'tasks', task.id);
+    notify(`${currentUserName} סיים/ה משימה וממתינ/ה לאישור מפקד: "${task.title}"`, 'tasks', task.id, myPersonId);
   };
 
   const handleCommanderApproveTask = async (task: Task) => {
@@ -626,7 +751,7 @@ function AppCore() {
       `${currentUserName} אישר/ה את השלמת המשימה: "${task.title}"`,
       'tasks',
       task.id,
-      task.responsibleId || 'all'
+      task.responsibleId || 'commander'
     );
   };
 
@@ -640,7 +765,7 @@ function AppCore() {
       `${currentUserName} החזיר/ה את המשימה "${task.title}" לתיקון`,
       'tasks',
       task.id,
-      task.responsibleId || 'all'
+      task.responsibleId || 'commander'
     );
     setRejectModalOpen(false);
     setRejectReason('');
@@ -650,7 +775,7 @@ function AppCore() {
     const text = comment.trim();
     if (!text) return;
     const c: Comment = { id: uid(), author: currentUserName, authorUid: authUser.uid, text, at: nowText() };
-    if (kind === 'task' && selectedTask) {
+    if (kind === 'task' && selectedTask && (isCommander || (userProfile?.role === 'soldier' && selectedTask.responsibleId === myPersonId))) {
       const updated = { ...selectedTask, comments: [...(selectedTask.comments || []), c] };
       await saveTaskDoc(updated);
       setSelectedTask(updated);
@@ -800,10 +925,12 @@ function AppCore() {
               className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
                 isCommander
                   ? 'bg-[#EEE1FF] text-[#7047D7]'
+                  : isSergeant
+                  ? 'bg-sky-50 text-sky-700'
                   : 'bg-emerald-50 text-emerald-700'
               }`}
             >
-              {isCommander ? 'מפקד/ת' : 'חייל/ת'} • {currentUserName}
+              {isCommander ? 'מפקד/ת' : isSergeant ? 'סמל/ת' : 'חייל/ת'} • {currentUserName}
             </span>
             {isCommander && (
               <button
@@ -938,7 +1065,7 @@ function AppCore() {
               />
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {isCommander && (
+                {canViewAllPresence && (
                   <>
                     <Stat
                       title="חיילים לא ביחידה"
@@ -961,7 +1088,7 @@ function AppCore() {
                   </>
                 )}
                 <Stat
-                  title={isCommander ? 'משימות פתוחות' : 'המשימות הפתוחות שלי'}
+                  title={canCreateTasks ? 'משימות פתוחות' : 'המשימות הפתוחות שלי'}
                   value={openTasks.length}
                   icon={<CheckSquare className="w-4 h-4" />}
                   onClick={() => goTasks('open')}
@@ -972,7 +1099,7 @@ function AppCore() {
                   icon={<Send className="w-4 h-4" />}
                   onClick={() => goTasks('pending_approval')}
                 />
-                {!isCommander && (
+                {!canViewAllPresence && (
                   <>
                     <Stat
                       title="משימות באיחור"
@@ -1020,34 +1147,97 @@ function AppCore() {
               </Section>
 
               <Section
-                title={isCommander ? 'נוכחות היום ביחידה' : 'הנוכחות האישית שלי היום'}
+                title={canViewAllPresence ? 'נוכחות היום ביחידה' : 'הנוכחות האישית שלי היום'}
                 action="לכל הנוכחות"
                 onAction={() => setActiveTab('leaves')}
               >
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {currentLeaves.length ? (
-                    currentLeaves.map((l) => (
-                      <button
-                        key={l.id}
-                        onClick={() => setSelectedLeave(l)}
-                        className="bg-slate-50 p-3 rounded-2xl flex items-center gap-2.5 text-right border border-slate-100"
-                      >
-                        <InitialBadge name={l.name} size="sm" />
-                        <div className="min-w-0">
-                          <div className="text-xs font-extrabold truncate">{l.name}</div>
-                          <div className="text-[11px] text-[#277B47] font-bold">
-                            {l.type}
-                            {l.type === 'הפניה' && l.referralTime ? ` (${l.referralTime})` : ''}
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="col-span-full">
-                      <Empty text={isCommander ? 'אין דיווחי היעדרות היום' : 'את/ה נוכח/ת ביחידה היום'} />
+                {(() => {
+                  const activeUnitPeople = people.filter((p) => p.active);
+                  const visiblePresencePeople = canViewAllPresence
+                    ? activeUnitPeople
+                    : activeUnitPeople.filter((p) => p.id === myPersonId);
+
+                  if (visiblePresencePeople.length === 0) {
+                    return (
+                      <Empty
+                        text={
+                          currentLeaves.length === 0
+                            ? canViewAllPresence
+                              ? 'אין אנשי צוות רשומים'
+                              : 'את/ה נוכח/ת ביחידה היום'
+                            : 'אין נתוני נוכחות להצגה'
+                        }
+                      />
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {visiblePresencePeople.map((p) => {
+                        const activeLeave = currentLeaves.find((l) => l.personId === p.id);
+                        const isPresent = !activeLeave;
+                        const statusLabel = activeLeave
+                          ? `${activeLeave.type}${
+                              activeLeave.type === 'הפניה' && activeLeave.referralTime
+                                ? ` (${activeLeave.referralTime})`
+                                : ''
+                            }`
+                          : 'נוכח/ת';
+
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              if (activeLeave) {
+                                setSelectedLeave(activeLeave);
+                              } else if (isCommander) {
+                                setSelectedPerson(p);
+                              }
+                            }}
+                            className={`p-3 rounded-2xl flex items-center gap-2.5 text-right border transition ${
+                              isPresent
+                                ? 'bg-emerald-50/90 border-emerald-200/90 hover:bg-emerald-100/70'
+                                : 'bg-rose-50/90 border-rose-200/90 hover:bg-rose-100/70'
+                            }`}
+                          >
+                            <div
+                              className={`w-8 h-8 text-xs rounded-xl font-black flex items-center justify-center shrink-0 select-none ${
+                                isPresent
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-rose-600 text-white'
+                              }`}
+                            >
+                              {getInitials(p.name)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className={`text-xs font-extrabold truncate ${
+                                  isPresent ? 'text-emerald-950' : 'text-rose-950'
+                                }`}
+                              >
+                                {p.name}
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    isPresent ? 'bg-emerald-600' : 'bg-rose-600'
+                                  }`}
+                                />
+                                <span
+                                  className={`text-[11px] font-extrabold truncate ${
+                                    isPresent ? 'text-emerald-700' : 'text-rose-700'
+                                  }`}
+                                >
+                                  {statusLabel}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </Section>
             </div>
           )}
@@ -1056,9 +1246,9 @@ function AppCore() {
             <PersonalView
               profile={userProfile}
               person={myPersonRecord}
-              tasks={tasks}
+              tasks={visibleTasks}
               leaves={leaves}
-              events={events}
+              events={visibleEvents}
               duties={duties}
               phoneSettings={phoneSettings}
               phoneAssignments={phoneAssignments}
@@ -1072,8 +1262,8 @@ function AppCore() {
             <div className="space-y-4">
               <PageTitle
                 title="משימות"
-                subtitle={isCommander ? 'ניהול, מעקב ואישור ביצוע משימות' : 'המשימות האישיות שלי'}
-                action={isCommander ? () => openForm('task') : undefined}
+                subtitle={isCommander ? 'ניהול, מעקב ואישור ביצוע משימות' : isSergeant ? 'צפייה במשימות חיילים ויצירת משימות לחיילים' : 'המשימות האישיות שלי'}
+                action={canCreateTasks ? () => openForm('task') : undefined}
               />
               <div className="flex flex-wrap bg-white p-1.5 rounded-2xl border border-slate-100 text-xs font-bold gap-1">
                 {(
@@ -1172,11 +1362,11 @@ function AppCore() {
             <div className="space-y-4">
               <PageTitle
                 title="נוכחות"
-                subtitle={isCommander ? 'מעקב נוכחות, הפניות, חזרתיות והיסטוריה' : 'הנוכחות וההיסטוריה האישית שלי'}
+                subtitle={canViewAllPresence ? 'מעקב נוכחות, הפניות, חזרתיות והיסטוריה' : 'הנוכחות וההיסטוריה האישית שלי'}
                 action={isCommander ? () => openForm('leave') : undefined}
               />
 
-              {isCommander && (
+              {canViewAllPresence && (
                 <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
                   <button
                     onClick={() => setLeaveTab('soldier')}
@@ -1209,7 +1399,7 @@ function AppCore() {
                 month={leaveMonth}
                 selectedDay={leaveSelectedDay}
                 leaves={leaves.filter((l) =>
-                  isCommander ? l.category === leaveTab : l.personId === myPersonId
+                  canViewAllPresence ? l.category === leaveTab : l.personId === myPersonId
                 )}
                 onSelect={setLeaveSelectedDay}
                 onPrev={() => setLeaveMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
@@ -1223,7 +1413,7 @@ function AppCore() {
 
               <Section
                 title={`${fmtDate(leaveSelectedDay)} • ${
-                  isCommander
+                  canViewAllPresence
                     ? leaveTab === 'soldier'
                       ? 'חיילים'
                       : leaveTab === 'reserve'
@@ -1345,44 +1535,123 @@ function AppCore() {
             </div>
           )}
 
-          {activeTab === 'schedule' && (
-            <div className="space-y-4">
-              <PageTitle
-                title="לו״ז"
-                subtitle="תכנון פעילות היחידה"
-                action={isCommander ? () => openForm('event') : undefined}
-              />
-              <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
-                <button
-                  onClick={() => setScheduleView('day')}
-                  className={`flex-1 py-2 rounded-xl ${
-                    scheduleView === 'day' ? 'bg-[#7047D7] text-white' : 'text-slate-500'
-                  }`}
-                >
-                  יומי
-                </button>
-                <button
-                  onClick={() => setScheduleView('week')}
-                  className={`flex-1 py-2 rounded-xl ${
-                    scheduleView === 'week' ? 'bg-[#7047D7] text-white' : 'text-slate-500'
-                  }`}
-                >
-                  שבועי
-                </button>
-              </div>
-              {scheduleView === 'day' ? (
-                <>
-                  <input
-                    type="date"
-                    value={selectedDay}
-                    onChange={(e) => setSelectedDay(e.target.value)}
-                    className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"
-                  />
-                  <div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-3">
-                    {visibleEvents
-                      .filter((e) => eventOccursOn(e, selectedDay))
-                      .sort((a, b) => a.time.localeCompare(b.time))
-                      .map((e) => (
+          {activeTab === 'schedule' && (() => {
+            const getPersonalDerivedItemsForDay = (day: string) => {
+              const myPhones = myPersonId
+                ? resolvePhoneSlotsForDate(day, phoneSettings, phoneAssignments).filter(
+                    (s) => s.personId === myPersonId
+                  )
+                : [];
+              const myDayDuties = duties.filter(
+                (d) =>
+                  d.active &&
+                  Boolean(myPersonId) &&
+                  d.personId === myPersonId &&
+                  d.startDate <= day &&
+                  d.endDate >= day
+              );
+              const myDayLeaves = leaves.filter(
+                (l) => Boolean(myPersonId) && l.personId === myPersonId && leaveOccursOn(l, day)
+              );
+              return { myPhones, myDayDuties, myDayLeaves };
+            };
+
+            const selectedDerived = getPersonalDerivedItemsForDay(selectedDay);
+            const selectedDayEvents = visibleEvents
+              .filter((e) => eventOccursOn(e, selectedDay))
+              .sort((a, b) => a.time.localeCompare(b.time));
+            const hasAnySelectedDayItem =
+              selectedDayEvents.length > 0 ||
+              selectedDerived.myPhones.length > 0 ||
+              selectedDerived.myDayDuties.length > 0 ||
+              selectedDerived.myDayLeaves.length > 0;
+
+            return (
+              <div className="space-y-4">
+                <PageTitle
+                  title="לו״ז"
+                  subtitle={isCommander ? 'תכנון פעילות היחידה ואירועים אישיים' : 'הלו״ז האישי המשולב שלי'}
+                  action={isCommander ? () => openForm('event') : undefined}
+                />
+                <div className="flex bg-white p-1 rounded-2xl border border-slate-100 text-xs font-bold">
+                  <button
+                    onClick={() => setScheduleView('day')}
+                    className={`flex-1 py-2 rounded-xl ${
+                      scheduleView === 'day' ? 'bg-[#7047D7] text-white' : 'text-slate-500'
+                    }`}
+                  >
+                    יומי
+                  </button>
+                  <button
+                    onClick={() => setScheduleView('week')}
+                    className={`flex-1 py-2 rounded-xl ${
+                      scheduleView === 'week' ? 'bg-[#7047D7] text-white' : 'text-slate-500'
+                    }`}
+                  >
+                    שבועי
+                  </button>
+                </div>
+                {scheduleView === 'day' ? (
+                  <>
+                    <input
+                      type="date"
+                      value={selectedDay}
+                      onChange={(e) => setSelectedDay(e.target.value)}
+                      className="w-full bg-white border border-slate-100 rounded-2xl p-3 text-sm font-bold"
+                    />
+                    <div className="bg-white rounded-3xl p-4 border border-slate-100 space-y-2.5">
+                      {selectedDerived.myDayLeaves.map((l) => (
+                        <button
+                          key={`leave-${l.id}`}
+                          onClick={() => setSelectedLeave(l)}
+                          className="w-full p-3 rounded-xl text-right border bg-[#E0F5E5] border-[#C5E9CE] text-[#277B47]"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-extrabold text-xs">
+                              נוכחות אישית: {l.type}
+                              {l.type === 'הפניה' && l.referralTime ? ` • שעה ${l.referralTime}` : ''}
+                            </span>
+                            <span className="text-[10px] font-bold bg-white/70 px-2 py-0.5 rounded-lg">
+                              מסונכרן אוטומטית
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+
+                      {selectedDerived.myPhones.map((p) => (
+                        <div
+                          key={`phone-${p.slotKey}`}
+                          className="w-full p-3 rounded-xl text-right border bg-[#EEE1FF] border-[#DEC9FF] text-[#7047D7]"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-extrabold text-xs">
+                              כוננות טלפון ({p.shiftLabel})
+                            </span>
+                            <span className="text-[10px] font-bold">
+                              {p.startTime}–{p.endTime}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+
+                      {selectedDerived.myDayDuties.map((d) => (
+                        <div
+                          key={`duty-${d.id}`}
+                          className="w-full p-3 rounded-xl text-right border bg-amber-50 border-amber-200 text-amber-900"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-extrabold text-xs">{d.type}</span>
+                            {d.startTime && (
+                              <span className="text-[10px] font-bold">
+                                {d.startTime}–{d.endTime || ''}
+                              </span>
+                            )}
+                          </div>
+                          {d.note && <div className="text-[10px] opacity-80 mt-1">{d.note}</div>}
+                        </div>
+                      ))}
+
+                      {selectedDayEvents.map((e) => (
                         <button
                           key={e.id}
                           onClick={() => setSelectedEvent(e)}
@@ -1408,75 +1677,125 @@ function AppCore() {
                           <div className="text-[10px] text-slate-500 mt-1">נוסף ע״י {e.createdBy}</div>
                         </button>
                       ))}
-                    {!visibleEvents.some((e) => eventOccursOn(e, selectedDay)) && (
-                      <Empty text="אין אירועים בתאריך הזה" />
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  {Array.from({ length: 7 }, (_, i) => addDaysISO(startOfWeekISO(selectedDay), i)).map(
-                    (day) => {
-                      const dayEvents = visibleEvents
-                        .filter((e) => eventOccursOn(e, day))
-                        .sort((a, b) => a.time.localeCompare(b.time));
-                      return (
-                        <div key={day} className="bg-white rounded-3xl p-4 border border-slate-100">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="font-black text-sm">
-                              {dateFromISO(day).toLocaleDateString('he-IL', { weekday: 'long' })}
+
+                      {!hasAnySelectedDayItem && (
+                        <Empty text="אין אירועים בתאריך הזה" />
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    {Array.from({ length: 7 }, (_, i) => addDaysISO(startOfWeekISO(selectedDay), i)).map(
+                      (day) => {
+                        const dayEvents = visibleEvents
+                          .filter((e) => eventOccursOn(e, day))
+                          .sort((a, b) => a.time.localeCompare(b.time));
+                        const derived = getPersonalDerivedItemsForDay(day);
+                        const hasWeekDayItems =
+                          dayEvents.length > 0 ||
+                          derived.myPhones.length > 0 ||
+                          derived.myDayDuties.length > 0 ||
+                          derived.myDayLeaves.length > 0;
+
+                        return (
+                          <div key={day} className="bg-white rounded-3xl p-4 border border-slate-100">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="font-black text-sm">
+                                {dateFromISO(day).toLocaleDateString('he-IL', { weekday: 'long' })}
+                              </div>
+                              <div className="text-xs text-slate-400">{fmtDate(day)}</div>
                             </div>
-                            <div className="text-xs text-slate-400">{fmtDate(day)}</div>
+                            <div className="space-y-2">
+                              {hasWeekDayItems ? (
+                                <>
+                                  {derived.myDayLeaves.map((l) => (
+                                    <button
+                                      key={`wk-leave-${l.id}-${day}`}
+                                      onClick={() => setSelectedLeave(l)}
+                                      className="w-full bg-[#E0F5E5] border border-[#C5E9CE] text-[#277B47] p-3 rounded-2xl flex justify-between text-right"
+                                    >
+                                      <span className="font-extrabold text-xs">
+                                        נוכחות אישית: {l.type}
+                                        {l.type === 'הפניה' && l.referralTime ? ` (${l.referralTime})` : ''}
+                                      </span>
+                                      <span className="text-[10px] font-bold">מסונכרן</span>
+                                    </button>
+                                  ))}
+                                  {derived.myPhones.map((p) => (
+                                    <div
+                                      key={`wk-phone-${p.slotKey}`}
+                                      className="w-full bg-[#EEE1FF] border border-[#DEC9FF] text-[#7047D7] p-3 rounded-2xl flex justify-between text-right"
+                                    >
+                                      <span className="font-extrabold text-xs">
+                                        כוננות טלפון ({p.shiftLabel})
+                                      </span>
+                                      <span className="text-[10px] font-bold">
+                                        {p.startTime}–{p.endTime}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {derived.myDayDuties.map((d) => (
+                                    <div
+                                      key={`wk-duty-${d.id}-${day}`}
+                                      className="w-full bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-2xl flex justify-between text-right"
+                                    >
+                                      <span className="font-extrabold text-xs">{d.type}</span>
+                                      {d.startTime && (
+                                        <span className="text-[10px] font-bold">
+                                          {d.startTime}–{d.endTime || ''}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {dayEvents.map((e) => (
+                                    <button
+                                      key={`${e.id}-${day}`}
+                                      onClick={() => setSelectedEvent(e)}
+                                      className="w-full bg-[#F7F3FF] border border-[#E7DCFF] p-3 rounded-2xl flex justify-between text-right"
+                                    >
+                                      <span className="font-extrabold text-xs">
+                                        {e.title}
+                                        {e.repeatFrequency && e.repeatFrequency !== 'none' ? ' ↻' : ''}
+                                      </span>
+                                      <span className="text-[10px] text-slate-500">
+                                        {e.time}–{e.endTime}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </>
+                              ) : (
+                                <div className="text-xs text-slate-300 py-1">אין אירועים</div>
+                              )}
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            {dayEvents.length ? (
-                              dayEvents.map((e) => (
-                                <button
-                                  key={`${e.id}-${day}`}
-                                  onClick={() => setSelectedEvent(e)}
-                                  className="w-full bg-[#F7F3FF] border border-[#E7DCFF] p-3 rounded-2xl flex justify-between text-right"
-                                >
-                                  <span className="font-extrabold text-xs">
-                                    {e.title}
-                                    {e.repeatFrequency && e.repeatFrequency !== 'none' ? ' ↻' : ''}
-                                  </span>
-                                  <span className="text-[10px] text-slate-500">
-                                    {e.time}–{e.endTime}
-                                  </span>
-                                </button>
-                              ))
-                            ) : (
-                              <div className="text-xs text-slate-300 py-1">אין אירועים</div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setSelectedDay(addDaysISO(selectedDay, -7))}
-                      className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold"
-                    >
-                      שבוע קודם
-                    </button>
-                    <button
-                      onClick={() => setSelectedDay(todayISO())}
-                      className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold"
-                    >
-                      השבוע
-                    </button>
-                    <button
-                      onClick={() => setSelectedDay(addDaysISO(selectedDay, 7))}
-                      className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold"
-                    >
-                      שבוע הבא
-                    </button>
+                        );
+                      }
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSelectedDay(addDaysISO(selectedDay, -7))}
+                        className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold"
+                      >
+                        שבוע קודם
+                      </button>
+                      <button
+                        onClick={() => setSelectedDay(todayISO())}
+                        className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold"
+                      >
+                        השבוע
+                      </button>
+                      <button
+                        onClick={() => setSelectedDay(addDaysISO(selectedDay, 7))}
+                        className="flex-1 bg-white border p-3 rounded-2xl text-xs font-bold"
+                      >
+                        שבוע הבא
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            );
+          })()}
 
           {activeTab === 'people' && isCommander && (
             <div className="space-y-4">
@@ -1540,7 +1859,7 @@ function AppCore() {
             <Nav active={activeTab === 'today'} icon={<Home />} label="היום" onClick={() => setActiveTab('today')} />
             <Nav active={activeTab === 'personal'} icon={<UserCheck />} label="אישי" onClick={() => setActiveTab('personal')} />
             <Nav active={activeTab === 'tasks'} icon={<CheckSquare />} label="משימות" onClick={() => setActiveTab('tasks')} />
-            {isCommander && (
+            {canCreateTasks && (
               <button
                 onClick={() => setQuickAdd(true)}
                 className="w-13 h-13 p-3.5 rounded-full bg-[#7047D7] shadow-lg text-white flex items-center justify-center -mt-5 shrink-0"
@@ -1556,16 +1875,20 @@ function AppCore() {
           </div>
         </nav>
 
-        {quickAdd && isCommander && (
+        {quickAdd && canCreateTasks && (
           <Modal title="הוספה חדשה" onClose={() => setQuickAdd(false)}>
             <Action icon={<CheckSquare />} title="הוספת משימה" onClick={() => openForm('task')} />
-            <Action icon={<Palmtree />} title="הוספת נוכחות" onClick={() => openForm('leave')} />
-            <Action icon={<Calendar />} title="הוספת אירוע בלו״ז" onClick={() => openForm('event')} />
-            <Action icon={<UserRound />} title="הוספת אדם" onClick={() => openForm('person')} />
+            {isCommander && (
+              <>
+                <Action icon={<Palmtree />} title="הוספת נוכחות" onClick={() => openForm('leave')} />
+                <Action icon={<Calendar />} title="הוספת אירוע בלו״ז" onClick={() => openForm('event')} />
+                <Action icon={<UserRound />} title="הוספת אדם" onClick={() => openForm('person')} />
+              </>
+            )}
           </Modal>
         )}
 
-        {formType && isCommander && (
+        {formType && (isCommander || (isSergeant && formType === 'task' && !editingId)) && (
           <Editor
             type={formType}
             editingId={editingId}
@@ -1574,23 +1897,32 @@ function AppCore() {
             leaves={leaves}
             events={events}
             currentUserName={currentUserName}
+            restrictTaskToSoldiers={isSergeant}
             onClose={() => {
               setFormType(null);
               setEditingId(null);
             }}
             onPerson={async (p, isEdit) => {
-              await savePersonDoc(p);
               const matchedUser = usersList.find(
                 (u) =>
                   (p.uid && u.uid === p.uid) ||
-                  (p.email && u.email && u.email.toLowerCase() === p.email.toLowerCase())
+                  (p.email && u.email && u.email.toLowerCase() === p.email.toLowerCase()) ||
+                  u.personId === p.id
               );
+              const resolvedRole: UserRole =
+                p.category === 'commander'
+                  ? 'commander'
+                  : matchedUser?.role === 'sergeant'
+                  ? 'sergeant'
+                  : p.role || 'soldier';
+              const personWithRole: Person = { ...p, role: resolvedRole };
+              await savePersonDoc(personWithRole);
               if (matchedUser) {
                 await saveUserProfileDoc({
                   ...matchedUser,
                   displayName: p.name,
                   personId: p.id,
-                  role: p.category === 'commander' ? 'commander' : 'soldier',
+                  role: resolvedRole,
                   active: p.active,
                   updatedAt: nowText()
                 });
@@ -1674,7 +2006,7 @@ function AppCore() {
 
             {selectedTask.status !== 'completed' && (
               <div className="space-y-2 pt-2">
-                {selectedTask.status === 'open' && (
+                {userProfile?.role === 'soldier' && selectedTask.responsibleId === myPersonId && selectedTask.status === 'open' && (
                   <button
                     onClick={() => handleSoldierStartTask(selectedTask)}
                     className="w-full bg-sky-600 text-white p-3 rounded-2xl font-black text-sm"
@@ -1683,7 +2015,7 @@ function AppCore() {
                   </button>
                 )}
 
-                {(selectedTask.status === 'open' || selectedTask.status === 'in_progress' || selectedTask.status === 'overdue') && (
+                {userProfile?.role === 'soldier' && selectedTask.responsibleId === myPersonId && (selectedTask.status === 'open' || selectedTask.status === 'in_progress' || selectedTask.status === 'overdue') && (
                   <button
                     onClick={() => handleSoldierSubmitForApproval(selectedTask)}
                     className="w-full bg-amber-500 text-white p-3 rounded-2xl font-black text-sm flex items-center justify-center gap-2"
@@ -2091,7 +2423,7 @@ function AppCore() {
             <Top title="התראות" onClose={() => setNotificationsOpen(false)} />
             <button
               onClick={async () => {
-                for (const n of notifications.filter((x) => !x.read)) {
+                for (const n of visibleNotifications.filter((x) => !x.read)) {
                   await saveNotificationDoc({ ...n, read: true });
                 }
               }}
@@ -2100,7 +2432,7 @@ function AppCore() {
               סימון הכל כנקרא
             </button>
             <div className="space-y-2">
-              {notifications.map((n) => (
+              {visibleNotifications.map((n) => (
                 <button
                   key={n.id}
                   onClick={async () => {
@@ -2181,21 +2513,35 @@ function AppCore() {
                       <div key={u.uid} className="p-2.5 rounded-xl bg-slate-50 border space-y-1.5">
                         <div className="flex justify-between text-xs font-bold">
                           <span className="truncate">{u.email || u.displayName}</span>
-                          <span className="text-[#7047D7]">{u.role === 'commander' ? 'מפקד' : 'חייל'}</span>
+                          <span className="text-[#7047D7]">
+                            {u.role === 'commander' ? 'מפקד' : u.role === 'sergeant' ? 'סמל' : 'חייל'}
+                          </span>
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
                           <select
                             value={u.role}
                             onChange={async (e) => {
+                              const nextRole = e.target.value as UserRole;
                               await saveUserProfileDoc({
                                 ...u,
-                                role: e.target.value as 'commander' | 'soldier',
+                                role: nextRole,
                                 updatedAt: nowText()
                               });
+                              if (u.personId) {
+                                const linkedPerson = people.find((x) => x.id === u.personId);
+                                if (linkedPerson) {
+                                  await savePersonDoc({
+                                    ...linkedPerson,
+                                    role: nextRole,
+                                    updatedAt: nowText()
+                                  });
+                                }
+                              }
                             }}
                             className="p-1.5 bg-white border rounded-lg text-xs font-bold"
                           >
                             <option value="soldier">חייל</option>
+                            <option value="sergeant">סמל</option>
                             <option value="commander">מפקד</option>
                           </select>
                           <select
@@ -2208,6 +2554,13 @@ function AppCore() {
                                 displayName: p?.name || u.displayName,
                                 updatedAt: nowText()
                               });
+                              if (p) {
+                                await savePersonDoc({
+                                  ...p,
+                                  role: u.role,
+                                  updatedAt: nowText()
+                                });
+                              }
                             }}
                             className="p-1.5 bg-white border rounded-lg text-xs font-bold"
                           >
@@ -2605,6 +2958,7 @@ function Editor({
   leaves,
   events,
   currentUserName,
+  restrictTaskToSoldiers = false,
   onClose,
   onPerson,
   onTask,
@@ -2618,6 +2972,7 @@ function Editor({
   leaves: Leave[];
   events: ScheduleEvent[];
   currentUserName: string;
+  restrictTaskToSoldiers?: boolean;
   onClose: () => void;
   onPerson: (p: Person, e: boolean) => Promise<void>;
   onTask: (t: Task, e: boolean) => Promise<void>;
@@ -2647,6 +3002,7 @@ function Editor({
         id: old?.id || uid(),
         name: f.name.trim(),
         category: f.category || 'soldier',
+        role: old?.role,
         email: (f.email || '').trim().toLowerCase(),
         phone: (f.phone || '').trim(),
         notes: f.notes || '',
@@ -2659,7 +3015,15 @@ function Editor({
 
     if (type === 'task') {
       if (!f.title?.trim()) return alert('צריך להזין שם משימה');
-      const p = people.find((x) => x.id === f.responsibleId) || people.filter((x) => x.active)[0];
+      const assignablePeople = people.filter(
+        (x) =>
+          x.active &&
+          (!restrictTaskToSoldiers ||
+            ((x.category === 'soldier' || x.category === 'reserve') &&
+              (x.role ?? 'soldier') === 'soldier'))
+      );
+      const p = assignablePeople.find((x) => x.id === f.responsibleId) || assignablePeople[0];
+      if (!p) return alert('יש לבחור חייל/ת לשיוך המשימה');
       const t: Task = {
         id: old?.id || uid(),
         title: f.title.trim(),
@@ -2802,11 +3166,27 @@ function Editor({
             <textarea className={input} placeholder="פירוט המשימה" value={f.description || ''} onChange={(e) => set('description', e.target.value)} />
             <select
               className={input}
-              value={f.responsibleId || people.filter((p) => p.active)[0]?.id || ''}
+              value={
+                f.responsibleId ||
+                people.filter(
+                  (p) =>
+                    p.active &&
+                    (!restrictTaskToSoldiers ||
+                      ((p.category === 'soldier' || p.category === 'reserve') &&
+                        (p.role ?? 'soldier') === 'soldier'))
+                )[0]?.id ||
+                ''
+              }
               onChange={(e) => set('responsibleId', e.target.value)}
             >
               {people
-                .filter((p) => p.active)
+                .filter(
+                  (p) =>
+                    p.active &&
+                    (!restrictTaskToSoldiers ||
+                      ((p.category === 'soldier' || p.category === 'reserve') &&
+                        (p.role ?? 'soldier') === 'soldier'))
+                )
                 .map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
